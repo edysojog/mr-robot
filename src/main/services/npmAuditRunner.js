@@ -127,4 +127,4 @@ function runScan(rootDir, onProgress) {
   });
 }
 
-module.exports = { checkInstalled, isApplicable, runScan };
+module.exports = { checkInstalled, isApplicable, runScan, normalizeSeverity, toFinding };

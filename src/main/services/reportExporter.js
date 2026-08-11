@@ -42,7 +42,7 @@ function toMarkdown(model) {
   lines.push(`- **Folder:** ${model.folderPath}`);
   lines.push(`- **Scanned:** ${model.completedAt}`);
   lines.push(`- **Total findings:** ${model.totalFindings}`);
-  lines.push(`- **Confirmed by both passes:** ${model.confirmedByBoth}`);
+  lines.push(`- **Confirmed by a static tool + AI:** ${model.confirmedByBoth}`);
   if (model.claudePartial) lines.push(`- **Note:** Claude pass hit its batch cap; some files were not analyzed.`);
   lines.push('');
   lines.push(SEVERITY_ORDER.map((sev) => `${sev}: ${model.counts[sev]}`).join(' | '));
@@ -52,12 +52,12 @@ function toMarkdown(model) {
     lines.push(`## ${group.severity.toUpperCase()}`);
     lines.push('');
     group.findings.forEach((f) => {
-      lines.push(`### ${f.title}${f.source === 'both' ? ' (confirmed by both passes)' : ''}${f.verified ? ' (verified)' : ''}`);
+      lines.push(`### ${f.title}${f.source === 'both' ? ` (confirmed by ${f.staticSource || 'static'} + ai)` : ''}${f.verified ? ' (verified)' : ''}`);
       lines.push('');
       lines.push(`| | |`);
       lines.push(`|---|---|`);
       lines.push(`| file | \`${f.file}:${f.line}\` |`);
-      lines.push(`| source | ${f.source} |`);
+      lines.push(`| source | ${f.source === 'both' ? `${f.staticSource || 'static'} + ai` : f.source} |`);
       if (f.ruleId) lines.push(`| rule | ${f.ruleId} |`);
       if (f.confidence) lines.push(`| confidence | ${f.confidence} |`);
       if (f.cwe) lines.push(`| cwe | ${f.cwe.join(', ')} |`);
@@ -86,7 +86,7 @@ function toHtml(model) {
       <details style="border:1px solid #1e2b23;border-left:4px solid ${severityColor[f.severity]};border-radius:4px;padding:10px 14px;margin-bottom:8px;background:#101613;">
         <summary style="cursor:pointer;color:#c9f7d8;">
           <strong>${escapeHtml(f.title)}</strong>
-          ${f.source === 'both' ? '<span style="border:1px solid #1f8a4c;color:#39ff88;border-radius:3px;padding:1px 6px;font-size:10px;margin-left:6px;">confirmed</span>' : ''}
+          ${f.source === 'both' ? `<span style="border:1px solid #1f8a4c;color:#39ff88;border-radius:3px;padding:1px 6px;font-size:10px;margin-left:6px;">confirmed by ${escapeHtml(f.staticSource || 'static')} + ai</span>` : ''}
           ${f.verified ? '<span style="border:1px solid #1f8a4c;color:#39ff88;border-radius:3px;padding:1px 6px;font-size:10px;margin-left:6px;">verified</span>' : ''}
           <span style="color:#6b8f79;float:right;">${escapeHtml(f.file)}:${f.line}</span>
         </summary>
@@ -113,7 +113,7 @@ function toHtml(model) {
   <h1 style="color:#39ff88;">MrRobotBot Security Report</h1>
   <p><strong>Folder:</strong> ${escapeHtml(model.folderPath)}<br/>
   <strong>Scanned:</strong> ${escapeHtml(model.completedAt)}<br/>
-  <strong>Total findings:</strong> ${model.totalFindings} &nbsp; <strong>Confirmed by both passes:</strong> ${model.confirmedByBoth}</p>
+  <strong>Total findings:</strong> ${model.totalFindings} &nbsp; <strong>Confirmed by a static tool + AI:</strong> ${model.confirmedByBoth}</p>
   ${model.claudePartial ? '<p style="color:#ffbd4a;">Claude pass hit its batch cap; some files were not analyzed.</p>' : ''}
   ${groupsHtml}
 </body>

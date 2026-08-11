@@ -1,0 +1,13 @@
+{
+  "suppressions": [
+    {
+      "fingerprint": "4a10828e8f8d930d",
+      "title": "detect child process",
+      "file": "src/main/services/toolInstaller.js",
+      "severity": "high",
+      "ruleId": "javascript.lang.security.detect-child-process.detect-child-process",
+      "reason": "False positive: cmd/args in toolInstaller.js run() are always fixed literal package-manager commands (pip/winget/choco/scoop/brew), never user-controlled input. Reviewed 2026-08-11.",
+      "addedAt": "2026-08-11T08:45:15.247Z"
+    }
+  ]
+}
