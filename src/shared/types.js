@@ -23,6 +23,7 @@ const CHANNELS = {
   SEMGREP_CHECK: 'semgrep:check-installed',
   GITLEAKS_CHECK: 'gitleaks:check-installed',
   NPM_AUDIT_CHECK: 'npmaudit:check-installed',
+  TOOL_INSTALL: 'tools:install',
   REPORT_EXPORT: 'report:export',
   OPEN_FILE: 'file:open',
   BASELINE_SUPPRESS: 'baseline:suppress',
@@ -32,6 +33,7 @@ const CHANNELS = {
   HOOK_STATUS: 'hook:status',
   HOOK_INSTALL: 'hook:install',
   HOOK_UNINSTALL: 'hook:uninstall',
+  FIX_SUGGEST: 'fix:suggest',
 };
 
 // Finding shape (see MrRobotBot.md / plan for full rationale):

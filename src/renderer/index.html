@@ -14,17 +14,12 @@
 
     <section id="screen-folder" class="screen active">
       <div class="panel">
-        <p class="prompt">select a project folder to audit</p>
-        <div class="row">
-          <button id="pick-folder-btn">Choose Folder&hellip;</button>
-          <span id="folder-path" class="muted">no folder selected</span>
-        </div>
-      </div>
-
-      <div class="panel">
-        <p class="muted" style="margin:0;font-size:12px;">
-          nothing leaves this machine except the file contents sent to your chosen AI provider during the AI pass — Semgrep, Gitleaks, and npm audit all run locally with no network calls. No telemetry, no ingest pipeline. Mock mode sends nothing anywhere.
-        </p>
+        <p class="prompt type-target">select a project folder to audit</p>
+        <button id="pick-folder-btn" class="folder-picker-btn">
+          <span class="folder-picker-icon">[+]</span>
+          <span class="folder-picker-label">Choose Folder&hellip;</span>
+          <span id="folder-path" class="muted folder-picker-path">no folder selected</span>
+        </button>
       </div>
 
       <div id="recent-folders-panel" class="panel" style="display:none;">
@@ -33,18 +28,25 @@
       </div>
 
       <div id="folder-summary" class="panel" style="display:none;">
-        <div class="row"><span class="muted">files found:</span> <span id="file-count">-</span></div>
-        <div class="row"><span class="muted">total size:</span> <span id="total-size">-</span></div>
-        <div class="row" id="truncated-row" style="display:none;">
+        <div class="row" style="gap:20px;">
+          <span class="muted"><span class="info-inline-value" id="file-count">-</span> files found</span>
+          <span class="muted"><span class="info-inline-value" id="total-size">-</span> total size</span>
+        </div>
+        <div class="row" id="truncated-row" style="display:none;margin-top:8px;">
           <span class="warn">file count exceeded the scan limit — results will be partial</span>
         </div>
-        <div class="row">
-          <label class="row" style="cursor:pointer;" id="diff-mode-label">
-            <input type="checkbox" id="diff-mode-checkbox" style="width:auto;" />
-            <span id="diff-mode-text">diff mode: scan only files changed since last commit</span>
-          </label>
-        </div>
-        <div class="row" id="hook-row" style="display:none;">
+
+        <label class="diff-toggle" id="diff-mode-label">
+          <span class="diff-toggle-text">
+            <span class="diff-toggle-title">Diff mode</span>
+            <span id="diff-mode-text" class="muted">scan only files changed since last commit</span>
+          </span>
+          <input type="checkbox" id="diff-mode-checkbox" />
+          <span class="switch">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </span>
+        </label>
+        <div class="row" id="hook-row" style="display:none;margin-top:10px;">
           <span id="hook-status-text" class="muted"></span>
           <button id="hook-install-btn">install pre-commit hook</button>
           <button id="hook-uninstall-btn" style="display:none;">uninstall hook</button>
@@ -52,33 +54,51 @@
       </div>
 
       <div class="panel">
-        <p class="prompt" style="margin:0 0 8px 0;">tools to run</p>
-        <div class="row">
-          <label class="row" style="cursor:pointer;">
-            <input type="checkbox" id="tool-semgrep-checkbox" style="width:auto;" checked />
-            <span class="status-dot pending" id="semgrep-dot"></span>
-            <span id="semgrep-status" class="muted">checking Semgrep&hellip;</span>
+        <p class="prompt" style="margin:0 0 10px 0;">tools to run</p>
+        <div class="tool-grid">
+          <label class="tool-card">
+            <input type="checkbox" id="tool-semgrep-checkbox" checked />
+            <span class="tool-card-head">
+              <span class="tool-card-name">Semgrep</span>
+              <span class="status-dot pending" id="semgrep-dot"></span>
+            </span>
+            <span id="semgrep-status" class="muted tool-card-status">checking Semgrep&hellip;</span>
           </label>
-        </div>
-        <div class="row">
-          <label class="row" style="cursor:pointer;">
-            <input type="checkbox" id="tool-gitleaks-checkbox" style="width:auto;" checked />
-            <span class="status-dot pending" id="gitleaks-dot"></span>
-            <span id="gitleaks-status" class="muted">checking Gitleaks&hellip;</span>
+
+          <label class="tool-card">
+            <input type="checkbox" id="tool-gitleaks-checkbox" checked />
+            <span class="tool-card-head">
+              <span class="tool-card-name">Gitleaks</span>
+              <span class="status-dot pending" id="gitleaks-dot"></span>
+            </span>
+            <span id="gitleaks-status" class="muted tool-card-status">checking Gitleaks&hellip;</span>
           </label>
-        </div>
-        <div class="row">
-          <label class="row" style="cursor:pointer;">
-            <input type="checkbox" id="tool-npmaudit-checkbox" style="width:auto;" checked />
-            <span class="status-dot pending" id="npmaudit-dot"></span>
-            <span id="npmaudit-status" class="muted">checking npm audit&hellip;</span>
+
+          <label class="tool-card">
+            <input type="checkbox" id="tool-npmaudit-checkbox" checked />
+            <span class="tool-card-head">
+              <span class="tool-card-name">npm audit</span>
+              <span class="status-dot pending" id="npmaudit-dot"></span>
+            </span>
+            <span id="npmaudit-status" class="muted tool-card-status">checking npm audit&hellip;</span>
           </label>
-        </div>
-        <div class="row">
-          <label class="row" style="cursor:pointer;">
-            <input type="checkbox" id="tool-ai-checkbox" style="width:auto;" checked />
-            <span class="status-dot pending" id="apikey-dot"></span>
-            <span id="apikey-status" class="muted">checking API key&hellip;</span>
+
+          <label class="tool-card">
+            <input type="checkbox" id="tool-osv-checkbox" checked />
+            <span class="tool-card-head">
+              <span class="tool-card-name">OSV deps</span>
+              <span class="status-dot pending" id="osv-dot"></span>
+            </span>
+            <span id="osv-status" class="muted tool-card-status">checking OSV dependency scan&hellip;</span>
+          </label>
+
+          <label class="tool-card">
+            <input type="checkbox" id="tool-ai-checkbox" checked />
+            <span class="tool-card-head">
+              <span class="tool-card-name">AI pass</span>
+              <span class="status-dot pending" id="apikey-dot"></span>
+            </span>
+            <span id="apikey-status" class="muted tool-card-status">checking API key&hellip;</span>
           </label>
         </div>
       </div>
@@ -88,13 +108,14 @@
 
     <section id="screen-scan" class="screen">
       <div class="panel">
-        <p class="prompt">scanning <span id="scan-folder-path"></span></p>
+        <p class="prompt"><span class="type-target">scanning</span> <span id="scan-folder-path"></span></p>
         <div class="log" id="scan-log"></div>
       </div>
       <button id="cancel-scan-btn">Cancel</button>
     </section>
 
     <section id="screen-results" class="screen">
+      <p class="prompt type-target" id="results-header" style="margin:0 0 10px;">cat scan_report</p>
       <div class="panel" id="results-summary"></div>
 
       <div class="panel">
@@ -126,6 +147,10 @@
       <div class="panel">
         <div class="row">
           <input id="results-search" type="text" placeholder="search title, description, file&hellip;" style="flex:1;" />
+          <select id="results-groupby">
+            <option value="severity">group by: severity</option>
+            <option value="source">group by: tool</option>
+          </select>
           <select id="results-sort">
             <option value="severity">sort: severity</option>
             <option value="file">sort: file</option>
@@ -142,20 +167,21 @@
     </section>
 
     <section id="screen-settings" class="screen">
-      <div class="panel" id="settings-intro" style="display:none;">
-        <p class="prompt" style="margin:0 0 6px;">welcome</p>
-        <p class="muted" style="margin:0;">
-          MrRobotBot audits a folder with Semgrep, Gitleaks, and npm audit, then optionally an AI pass for the logic-level bugs static tools miss. Pick a provider below (or "mock" to try it free with no key), check that the local tools are installed, then head to the folder picker to run your first scan. You can always come back here later from "settings".
-        </p>
+      <div class="onboard-slide-area" id="onboard-slide-area">
+      <div class="panel term-boot" id="settings-intro" data-onboard-step="0" style="display:none;">
+        <p class="prompt type-target" style="margin:0 0 10px;">whoami --app</p>
+        <p class="muted term-line type-target" style="margin:0 0 8px;">MrRobotBot v0.1.0 — local, offline-first security auditor</p>
+        <p class="muted term-line type-target" style="margin:0 0 8px;">runs Semgrep + Gitleaks + npm audit, then an optional AI pass for the logic-level bugs static tools miss</p>
+        <p class="muted term-line type-target" style="margin:0 0 8px;">reports only, never auto-fixes — nothing leaves this machine except file contents sent to your chosen AI provider, and only during that pass</p>
+        <p class="muted term-line type-target" style="margin:0;">ready. let's get you set up →</p>
       </div>
 
-      <div class="panel">
-        <p class="prompt">choose your provider</p>
+      <div class="panel" data-onboard-step="1">
+        <p class="prompt type-target">choose your provider</p>
         <p class="muted" style="margin:0 0 12px;font-size:12px;">
           only the one you pick needs any setup — nothing else on this screen matters until you switch to it.
         </p>
         <div class="row" id="provider-cards" style="flex-wrap:wrap;gap:8px;">
-          <button class="provider-card" data-provider="mock">mock<br /><span class="muted">no cost, no key</span></button>
           <button class="provider-card" data-provider="groq">groq<br /><span class="muted">free tier</span></button>
           <button class="provider-card" data-provider="claude">claude<br /><span class="muted">paid</span></button>
           <button class="provider-card" data-provider="gemini">gemini<br /><span class="muted">paid</span></button>
@@ -163,15 +189,11 @@
           <button class="provider-card" data-provider="ollama">ollama<br /><span class="muted">local, free</span></button>
         </div>
         <p class="muted" style="margin:12px 0 0;font-size:12px;">
-          whichever provider is selected is the only place scanned file contents leave this machine, and only during the AI pass — Semgrep/Gitleaks/npm audit never send anything anywhere. Pick mock or ollama to keep the whole scan fully offline.
+          whichever provider is selected is the only place scanned file contents leave this machine, and only during the AI pass — Semgrep/Gitleaks/npm audit never send anything anywhere. Pick ollama to keep the whole scan fully offline.
         </p>
       </div>
 
-      <div id="provider-config-mock" class="provider-config panel" style="display:none;">
-        <p class="prompt">mock</p>
-        <p class="muted" style="margin:0;">canned findings for testing the pipeline — no API call, no cost, nothing to configure.</p>
-      </div>
-
+      <div id="provider-config-container" data-onboard-step="2">
       <div id="provider-config-groq" class="provider-config panel" style="display:none;">
         <p class="prompt">groq</p>
         <div class="row">
@@ -253,9 +275,11 @@
           the model must already be pulled (<code>ollama pull &lt;model&gt;</code>) and support tool calling — smaller local models are noticeably less reliable at structured output than the hosted providers.
         </p>
       </div>
+      </div>
 
+      <div data-onboard-step="3">
       <div class="panel">
-        <p class="prompt">recon pass</p>
+        <p class="prompt type-target">recon pass</p>
         <div class="row">
           <label class="row" style="cursor:pointer;">
             <input type="checkbox" id="recon-checkbox" style="width:auto;" />
@@ -265,7 +289,7 @@
       </div>
 
       <div class="panel">
-        <p class="prompt">verification pass</p>
+        <p class="prompt type-target">verification pass</p>
         <div class="row">
           <label class="row" style="cursor:pointer;">
             <input type="checkbox" id="verification-checkbox" style="width:auto;" />
@@ -273,9 +297,10 @@
           </label>
         </div>
       </div>
+      </div>
 
-      <div class="panel">
-        <p class="prompt" style="margin:0 0 8px;">local tools</p>
+      <div class="panel" data-onboard-step="4">
+        <p class="prompt type-target" style="margin:0 0 8px;">local tools</p>
         <div class="row">
           <span class="status-dot pending" id="settings-semgrep-dot"></span>
           <span id="settings-semgrep-status" class="muted">checking Semgrep&hellip;</span>
@@ -290,15 +315,28 @@
         </div>
         <div class="row" style="margin-top:8px;">
           <button id="recheck-semgrep-btn">Re-check tools</button>
+          <button id="install-tools-btn">Install missing tools</button>
         </div>
+        <div class="log" id="install-tools-log" style="display:none;height:auto;max-height:160px;margin-top:10px;font-size:12px;"></div>
       </div>
 
-      <button id="back-btn">&larr; Back</button>
+      </div>
+
+      <div class="onboard-bottom-bar" id="onboard-bottom-bar">
+        <div class="carousel-nav" id="carousel-nav" style="display:none;">
+          <button id="carousel-prev">&lt;</button>
+          <div class="carousel-dots" id="carousel-dots"></div>
+          <button id="carousel-next">&gt;</button>
+        </div>
+
+        <button id="back-btn">&larr; Back</button>
+      </div>
     </section>
   </div>
 
   <script src="lib/state.js"></script>
   <script src="lib/ipcClient.js"></script>
+  <script src="lib/typewriter.js"></script>
   <script src="screens/folderSelect.js"></script>
   <script src="screens/scanProgress.js"></script>
   <script src="screens/results.js"></script>

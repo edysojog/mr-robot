@@ -21,21 +21,27 @@ function isDuplicate(a, b) {
   return Math.abs(a.line - b.line) <= LINE_PROXIMITY;
 }
 
-// Merges Semgrep + Claude findings: same file with a nearby line is treated
-// as one finding regardless of source. Claude's description wins (richer
-// rationale); Semgrep's ruleId is kept for traceability; severity escalates
-// to the higher of the two.
-function merge(semgrepFindings, claudeFindings) {
+// Merges static-tool + AI findings: same file with a nearby line is treated
+// as one finding regardless of source. `staticFindings` is every static
+// pass combined (Semgrep, Gitleaks, npm audit) -- a match against any of
+// them counts as a cross-tool confirmation, not just Semgrep. AI's
+// description wins (richer rationale); the static finding's ruleId is kept
+// for traceability; severity escalates to the higher of the two.
+// `staticSource` records which specific static tool actually matched, so
+// the UI can say e.g. "confirmed by gitleaks + ai" instead of a generic
+// "both" that reads as semgrep-only.
+function merge(staticFindings, claudeFindings) {
   const merged = [];
   const claudeUsed = new Set();
 
-  semgrepFindings.forEach((sf) => {
+  staticFindings.forEach((sf) => {
     const match = claudeFindings.find((cf) => !claudeUsed.has(cf.id) && isDuplicate(sf, cf));
     if (match) {
       claudeUsed.add(match.id);
       merged.push({
         ...sf,
         source: 'both',
+        staticSource: sf.source,
         severity: higherSeverity(sf.severity, match.severity),
         description: match.description || sf.description,
         confidence: match.confidence || sf.confidence,

@@ -26,6 +26,7 @@ const CHANNELS = {
   SEMGREP_CHECK: 'semgrep:check-installed',
   GITLEAKS_CHECK: 'gitleaks:check-installed',
   NPM_AUDIT_CHECK: 'npmaudit:check-installed',
+  TOOL_INSTALL: 'tools:install',
   REPORT_EXPORT: 'report:export',
   OPEN_FILE: 'file:open',
   BASELINE_SUPPRESS: 'baseline:suppress',
@@ -35,6 +36,7 @@ const CHANNELS = {
   HOOK_STATUS: 'hook:status',
   HOOK_INSTALL: 'hook:install',
   HOOK_UNINSTALL: 'hook:uninstall',
+  FIX_SUGGEST: 'fix:suggest',
 };
 
 contextBridge.exposeInMainWorld('mrrobot', {
@@ -57,6 +59,7 @@ contextBridge.exposeInMainWorld('mrrobot', {
   checkSemgrep: () => ipcRenderer.invoke(CHANNELS.SEMGREP_CHECK),
   checkGitleaks: () => ipcRenderer.invoke(CHANNELS.GITLEAKS_CHECK),
   checkNpmAudit: () => ipcRenderer.invoke(CHANNELS.NPM_AUDIT_CHECK),
+  installTool: (tool) => ipcRenderer.invoke(CHANNELS.TOOL_INSTALL, tool),
 
   startScan: (folderPath, diffMode, tools) => ipcRenderer.invoke(CHANNELS.SCAN_START, folderPath, diffMode, tools),
   cancelScan: (scanId) => ipcRenderer.invoke(CHANNELS.SCAN_CANCEL, scanId),
@@ -90,4 +93,6 @@ contextBridge.exposeInMainWorld('mrrobot', {
   getHookStatus: (rootDir) => ipcRenderer.invoke(CHANNELS.HOOK_STATUS, rootDir),
   installHook: (rootDir) => ipcRenderer.invoke(CHANNELS.HOOK_INSTALL, rootDir),
   uninstallHook: (rootDir) => ipcRenderer.invoke(CHANNELS.HOOK_UNINSTALL, rootDir),
+
+  suggestFix: (rootDir, finding) => ipcRenderer.invoke(CHANNELS.FIX_SUGGEST, rootDir, finding),
 });

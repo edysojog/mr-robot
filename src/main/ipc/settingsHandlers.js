@@ -8,6 +8,7 @@ const secureStore = require('../services/secureStore');
 const semgrepRunner = require('../services/semgrepRunner');
 const gitleaksRunner = require('../services/gitleaksRunner');
 const npmAuditRunner = require('../services/npmAuditRunner');
+const toolInstaller = require('../services/toolInstaller');
 const localSettings = require('../services/localSettings');
 const { DEFAULT_MODEL: DEFAULT_GROQ_MODEL } = require('../services/groqAuditor');
 const { DEFAULT_MODEL: DEFAULT_GEMINI_MODEL } = require('../services/geminiAuditor');
@@ -143,6 +144,10 @@ function registerSettingsHandlers() {
 
   ipcMain.handle(CHANNELS.NPM_AUDIT_CHECK, async () => {
     return npmAuditRunner.checkInstalled();
+  });
+
+  ipcMain.handle(CHANNELS.TOOL_INSTALL, async (event, tool) => {
+    return toolInstaller.installTool(tool);
   });
 }
 

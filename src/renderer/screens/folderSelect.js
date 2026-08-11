@@ -1,6 +1,24 @@
 const FolderSelectScreen = (() => {
   let selectedFolder = null;
 
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // Splits a full path into its last segment (shown bold, as the card's
+  // "name") and everything before it (shown small/muted underneath) --
+  // reads better than one long absolute path crammed onto a single line.
+  function splitPath(folderPath) {
+    const normalized = folderPath.replace(/\\/g, '/').replace(/\/+$/, '');
+    const idx = normalized.lastIndexOf('/');
+    if (idx === -1) return { name: normalized, parent: '' };
+    return { name: normalized.slice(idx + 1), parent: normalized.slice(0, idx) };
+  }
+
   function formatBytes(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -12,6 +30,7 @@ const FolderSelectScreen = (() => {
       semgrep: document.getElementById('tool-semgrep-checkbox').checked,
       gitleaks: document.getElementById('tool-gitleaks-checkbox').checked,
       npmAudit: document.getElementById('tool-npmaudit-checkbox').checked,
+      osv: document.getElementById('tool-osv-checkbox').checked,
       ai: document.getElementById('tool-ai-checkbox').checked,
     };
   }
@@ -19,12 +38,13 @@ const FolderSelectScreen = (() => {
   function updateStartButton() {
     const startBtn = document.getElementById('start-scan-btn');
     const tools = getSelectedTools();
-    const anySelected = tools.semgrep || tools.gitleaks || tools.npmAudit || tools.ai;
+    const anySelected = tools.semgrep || tools.gitleaks || tools.npmAudit || tools.osv || tools.ai;
     const semgrepOk = !tools.semgrep || FolderSelectScreen.semgrepOk;
     const gitleaksOk = !tools.gitleaks || FolderSelectScreen.gitleaksOk;
     const npmAuditOk = !tools.npmAudit || FolderSelectScreen.npmAuditOk;
+    const osvOk = !tools.osv || FolderSelectScreen.hasDependencyManifest;
     const aiOk = !tools.ai || FolderSelectScreen.keyReady;
-    startBtn.disabled = !(selectedFolder && anySelected && semgrepOk && gitleaksOk && npmAuditOk && aiOk);
+    startBtn.disabled = !(selectedFolder && anySelected && semgrepOk && gitleaksOk && npmAuditOk && osvOk && aiOk);
   }
 
   function applyFolderResult(result) {
@@ -65,6 +85,21 @@ const FolderSelectScreen = (() => {
       npmAuditStatus.textContent = 'npm audit ready (package.json found)';
     }
 
+    const osvCheckbox = document.getElementById('tool-osv-checkbox');
+    const osvDot = document.getElementById('osv-dot');
+    const osvStatus = document.getElementById('osv-status');
+    FolderSelectScreen.hasDependencyManifest = result.hasDependencyManifest;
+    if (!result.hasDependencyManifest) {
+      osvCheckbox.checked = false;
+      osvCheckbox.disabled = true;
+      osvDot.className = 'status-dot bad';
+      osvStatus.textContent = 'OSV dependency scan unavailable — no requirements.txt/go.mod/Cargo.lock in this folder';
+    } else {
+      osvCheckbox.disabled = false;
+      osvDot.className = 'status-dot ok';
+      osvStatus.textContent = 'OSV dependency scan ready (no install needed, uses the public OSV.dev API)';
+    }
+
     updateStartButton();
   }
 
@@ -101,9 +136,17 @@ const FolderSelectScreen = (() => {
     panel.style.display = 'block';
 
     recentFolders.forEach((folderPath) => {
+      const { name, parent } = splitPath(folderPath);
       const row = document.createElement('div');
-      row.className = 'recent-folder-row';
-      row.innerHTML = `<span class="path">${folderPath}</span>`;
+      row.className = 'recent-folder-card';
+      row.title = folderPath;
+      row.innerHTML = `
+        <span class="recent-folder-icon">[dir]</span>
+        <span class="recent-folder-text">
+          <span class="recent-folder-name">${escapeHtml(name)}</span>
+          ${parent ? `<span class="recent-folder-parent muted">${escapeHtml(parent)}</span>` : ''}
+        </span>
+      `;
       row.addEventListener('click', async () => {
         const result = await IpcClient.selectRecentFolder(folderPath);
         if (!result) {
@@ -160,6 +203,20 @@ const FolderSelectScreen = (() => {
       : 'npm not found on PATH';
     npmAuditCheckbox.disabled = !npmAudit.installed || !FolderSelectScreen.hasPackageJson;
     if (!npmAudit.installed) npmAuditCheckbox.checked = false;
+
+    // No local tool for OSV -- it's a keyless public API call, so unlike
+    // the checks above there's nothing to detect on PATH. Applicability is
+    // purely per-folder (does a requirements.txt/go.mod/Cargo.lock exist),
+    // which applyFolderResult() resolves once a folder is actually picked.
+    const osvDot = document.getElementById('osv-dot');
+    const osvStatus = document.getElementById('osv-status');
+    const osvCheckbox = document.getElementById('tool-osv-checkbox');
+    if (!FolderSelectScreen.hasDependencyManifest) {
+      osvDot.className = 'status-dot pending';
+      osvStatus.textContent = 'OSV dependency scan — pick a folder to check applicability';
+      osvCheckbox.disabled = true;
+      osvCheckbox.checked = false;
+    }
 
     const provider = settings.provider;
     const hasKeys = settings.hasKeys || {};
@@ -234,6 +291,7 @@ const FolderSelectScreen = (() => {
     });
 
     refreshStatus();
+    Typewriter.play('#screen-folder');
   }
 
   return {
@@ -243,6 +301,7 @@ const FolderSelectScreen = (() => {
     gitleaksOk: false,
     npmAuditOk: false,
     hasPackageJson: false,
+    hasDependencyManifest: false,
     keyReady: false,
   };
 })();
