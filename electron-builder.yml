@@ -1,0 +1,14 @@
+appId: com.mrrobotbot.app
+productName: MrRobotBot
+directories:
+  output: release
+files:
+  - src/**/*
+  - package.json
+win:
+  target:
+    - nsis
+    - portable
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

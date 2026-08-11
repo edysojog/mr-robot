@@ -1,0 +1,308 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>MrRobotBot</title>
+  <link rel="stylesheet" href="styles/terminal.css" />
+</head>
+<body>
+  <div id="app">
+    <div class="titlebar">
+      <span class="brand">MrRobotBot</span>
+      <button id="settings-btn">settings</button>
+    </div>
+
+    <section id="screen-folder" class="screen active">
+      <div class="panel">
+        <p class="prompt">select a project folder to audit</p>
+        <div class="row">
+          <button id="pick-folder-btn">Choose Folder&hellip;</button>
+          <span id="folder-path" class="muted">no folder selected</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="muted" style="margin:0;font-size:12px;">
+          nothing leaves this machine except the file contents sent to your chosen AI provider during the AI pass — Semgrep, Gitleaks, and npm audit all run locally with no network calls. No telemetry, no ingest pipeline. Mock mode sends nothing anywhere.
+        </p>
+      </div>
+
+      <div id="recent-folders-panel" class="panel" style="display:none;">
+        <p class="prompt" style="margin:0 0 8px 0;">recent folders</p>
+        <div id="recent-folders-list"></div>
+      </div>
+
+      <div id="folder-summary" class="panel" style="display:none;">
+        <div class="row"><span class="muted">files found:</span> <span id="file-count">-</span></div>
+        <div class="row"><span class="muted">total size:</span> <span id="total-size">-</span></div>
+        <div class="row" id="truncated-row" style="display:none;">
+          <span class="warn">file count exceeded the scan limit — results will be partial</span>
+        </div>
+        <div class="row">
+          <label class="row" style="cursor:pointer;" id="diff-mode-label">
+            <input type="checkbox" id="diff-mode-checkbox" style="width:auto;" />
+            <span id="diff-mode-text">diff mode: scan only files changed since last commit</span>
+          </label>
+        </div>
+        <div class="row" id="hook-row" style="display:none;">
+          <span id="hook-status-text" class="muted"></span>
+          <button id="hook-install-btn">install pre-commit hook</button>
+          <button id="hook-uninstall-btn" style="display:none;">uninstall hook</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="prompt" style="margin:0 0 8px 0;">tools to run</p>
+        <div class="row">
+          <label class="row" style="cursor:pointer;">
+            <input type="checkbox" id="tool-semgrep-checkbox" style="width:auto;" checked />
+            <span class="status-dot pending" id="semgrep-dot"></span>
+            <span id="semgrep-status" class="muted">checking Semgrep&hellip;</span>
+          </label>
+        </div>
+        <div class="row">
+          <label class="row" style="cursor:pointer;">
+            <input type="checkbox" id="tool-gitleaks-checkbox" style="width:auto;" checked />
+            <span class="status-dot pending" id="gitleaks-dot"></span>
+            <span id="gitleaks-status" class="muted">checking Gitleaks&hellip;</span>
+          </label>
+        </div>
+        <div class="row">
+          <label class="row" style="cursor:pointer;">
+            <input type="checkbox" id="tool-npmaudit-checkbox" style="width:auto;" checked />
+            <span class="status-dot pending" id="npmaudit-dot"></span>
+            <span id="npmaudit-status" class="muted">checking npm audit&hellip;</span>
+          </label>
+        </div>
+        <div class="row">
+          <label class="row" style="cursor:pointer;">
+            <input type="checkbox" id="tool-ai-checkbox" style="width:auto;" checked />
+            <span class="status-dot pending" id="apikey-dot"></span>
+            <span id="apikey-status" class="muted">checking API key&hellip;</span>
+          </label>
+        </div>
+      </div>
+
+      <button id="start-scan-btn" disabled>Start Scan</button>
+    </section>
+
+    <section id="screen-scan" class="screen">
+      <div class="panel">
+        <p class="prompt">scanning <span id="scan-folder-path"></span></p>
+        <div class="log" id="scan-log"></div>
+      </div>
+      <button id="cancel-scan-btn">Cancel</button>
+    </section>
+
+    <section id="screen-results" class="screen">
+      <div class="panel" id="results-summary"></div>
+
+      <div class="panel">
+        <div class="row">
+          <span id="history-summary" class="muted">no prior scans for this project</span>
+          <button id="view-history-btn">view history</button>
+        </div>
+        <div id="history-list" style="display:none;margin-top:10px;"></div>
+      </div>
+
+      <div class="panel" id="suppressed-panel" style="display:none;">
+        <div class="row">
+          <span id="suppressed-summary" class="muted"></span>
+          <button id="manage-suppressed-btn">manage</button>
+        </div>
+        <div id="suppressed-list" style="display:none;margin-top:10px;"></div>
+      </div>
+
+      <div class="panel">
+        <div class="row" style="justify-content:flex-end;">
+          <span id="export-status" class="muted"></span>
+          <button id="export-md-btn">export .md</button>
+          <button id="export-html-btn">export .html</button>
+          <button id="export-json-btn">export .json</button>
+          <button id="export-sarif-btn">export .sarif</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <input id="results-search" type="text" placeholder="search title, description, file&hellip;" style="flex:1;" />
+          <select id="results-sort">
+            <option value="severity">sort: severity</option>
+            <option value="file">sort: file</option>
+            <option value="confidence">sort: confidence</option>
+          </select>
+        </div>
+        <div class="row" id="results-severity-filters"></div>
+        <div class="row" id="results-source-filters"></div>
+      </div>
+
+      <div id="results-count" class="muted" style="margin-bottom:8px;"></div>
+      <div id="results-list"></div>
+      <button id="results-back-btn">&larr; New Scan</button>
+    </section>
+
+    <section id="screen-settings" class="screen">
+      <div class="panel" id="settings-intro" style="display:none;">
+        <p class="prompt" style="margin:0 0 6px;">welcome</p>
+        <p class="muted" style="margin:0;">
+          MrRobotBot audits a folder with Semgrep, Gitleaks, and npm audit, then optionally an AI pass for the logic-level bugs static tools miss. Pick a provider below (or "mock" to try it free with no key), check that the local tools are installed, then head to the folder picker to run your first scan. You can always come back here later from "settings".
+        </p>
+      </div>
+
+      <div class="panel">
+        <p class="prompt">choose your provider</p>
+        <p class="muted" style="margin:0 0 12px;font-size:12px;">
+          only the one you pick needs any setup — nothing else on this screen matters until you switch to it.
+        </p>
+        <div class="row" id="provider-cards" style="flex-wrap:wrap;gap:8px;">
+          <button class="provider-card" data-provider="mock">mock<br /><span class="muted">no cost, no key</span></button>
+          <button class="provider-card" data-provider="groq">groq<br /><span class="muted">free tier</span></button>
+          <button class="provider-card" data-provider="claude">claude<br /><span class="muted">paid</span></button>
+          <button class="provider-card" data-provider="gemini">gemini<br /><span class="muted">paid</span></button>
+          <button class="provider-card" data-provider="openai">openai<br /><span class="muted">paid</span></button>
+          <button class="provider-card" data-provider="ollama">ollama<br /><span class="muted">local, free</span></button>
+        </div>
+        <p class="muted" style="margin:12px 0 0;font-size:12px;">
+          whichever provider is selected is the only place scanned file contents leave this machine, and only during the AI pass — Semgrep/Gitleaks/npm audit never send anything anywhere. Pick mock or ollama to keep the whole scan fully offline.
+        </p>
+      </div>
+
+      <div id="provider-config-mock" class="provider-config panel" style="display:none;">
+        <p class="prompt">mock</p>
+        <p class="muted" style="margin:0;">canned findings for testing the pipeline — no API call, no cost, nothing to configure.</p>
+      </div>
+
+      <div id="provider-config-groq" class="provider-config panel" style="display:none;">
+        <p class="prompt">groq</p>
+        <div class="row">
+          <input id="groq-apikey-input" type="password" placeholder="gsk_..." />
+        </div>
+        <div class="row">
+          <button id="groq-save-key-btn">Save</button>
+          <button id="groq-clear-key-btn">Clear</button>
+          <button id="groq-test-key-btn">Test Key</button>
+          <span id="groq-key-status" class="muted"></span>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input id="groq-model-input" type="text" placeholder="model override (default: llama-3.3-70b-versatile)" />
+        </div>
+      </div>
+
+      <div id="provider-config-claude" class="provider-config panel" style="display:none;">
+        <p class="prompt">claude</p>
+        <div class="row">
+          <input id="apikey-input" type="password" placeholder="sk-ant-..." />
+        </div>
+        <div class="row">
+          <button id="save-key-btn">Save</button>
+          <button id="clear-key-btn">Clear</button>
+          <button id="test-key-btn">Test Key</button>
+          <span id="key-save-status" class="muted"></span>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <select id="claude-model-select">
+            <option value="claude-sonnet-5">claude-sonnet-5 (default)</option>
+            <option value="claude-opus-5">claude-opus-5 (slower, higher-signal)</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="provider-config-gemini" class="provider-config panel" style="display:none;">
+        <p class="prompt">gemini</p>
+        <div class="row">
+          <input id="gemini-apikey-input" type="password" placeholder="AIza..." />
+        </div>
+        <div class="row">
+          <button id="gemini-save-key-btn">Save</button>
+          <button id="gemini-clear-key-btn">Clear</button>
+          <button id="gemini-test-key-btn">Test Key</button>
+          <span id="gemini-key-status" class="muted"></span>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input id="gemini-model-input" type="text" placeholder="model override (default: gemini-2.5-flash)" />
+        </div>
+      </div>
+
+      <div id="provider-config-openai" class="provider-config panel" style="display:none;">
+        <p class="prompt">openai</p>
+        <div class="row">
+          <input id="openai-apikey-input" type="password" placeholder="sk-..." />
+        </div>
+        <div class="row">
+          <button id="openai-save-key-btn">Save</button>
+          <button id="openai-clear-key-btn">Clear</button>
+          <button id="openai-test-key-btn">Test Key</button>
+          <span id="openai-key-status" class="muted"></span>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input id="openai-model-input" type="text" placeholder="model override (default: gpt-4.1-mini)" />
+        </div>
+      </div>
+
+      <div id="provider-config-ollama" class="provider-config panel" style="display:none;">
+        <p class="prompt">ollama (local, no key)</p>
+        <div class="row">
+          <input id="ollama-baseurl-input" type="text" placeholder="http://localhost:11434/v1" />
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input id="ollama-model-input" type="text" placeholder="model already pulled locally (default: llama3.1)" />
+          <button id="ollama-test-btn">Test Connection</button>
+          <span id="ollama-status" class="muted"></span>
+        </div>
+        <p class="muted" style="margin:8px 0 0;font-size:12px;">
+          the model must already be pulled (<code>ollama pull &lt;model&gt;</code>) and support tool calling — smaller local models are noticeably less reliable at structured output than the hosted providers.
+        </p>
+      </div>
+
+      <div class="panel">
+        <p class="prompt">recon pass</p>
+        <div class="row">
+          <label class="row" style="cursor:pointer;">
+            <input type="checkbox" id="recon-checkbox" style="width:auto;" />
+            <span class="muted">one extra LLM call at the start of each scan to map the codebase's attack surface and prioritize which files the scanner reads closely (small added cost, once per scan)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="prompt">verification pass</p>
+        <div class="row">
+          <label class="row" style="cursor:pointer;">
+            <input type="checkbox" id="verification-checkbox" style="width:auto;" />
+            <span class="muted">re-check every AI finding with a second, skeptical LLM call before reporting it (recommended, roughly doubles AI-pass cost/time)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="prompt" style="margin:0 0 8px;">local tools</p>
+        <div class="row">
+          <span class="status-dot pending" id="settings-semgrep-dot"></span>
+          <span id="settings-semgrep-status" class="muted">checking Semgrep&hellip;</span>
+        </div>
+        <div class="row">
+          <span class="status-dot pending" id="settings-gitleaks-dot"></span>
+          <span id="settings-gitleaks-status" class="muted">checking Gitleaks&hellip;</span>
+        </div>
+        <div class="row">
+          <span class="status-dot pending" id="settings-npmaudit-dot"></span>
+          <span id="settings-npmaudit-status" class="muted">checking npm&hellip;</span>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button id="recheck-semgrep-btn">Re-check tools</button>
+        </div>
+      </div>
+
+      <button id="back-btn">&larr; Back</button>
+    </section>
+  </div>
+
+  <script src="lib/state.js"></script>
+  <script src="lib/ipcClient.js"></script>
+  <script src="screens/folderSelect.js"></script>
+  <script src="screens/scanProgress.js"></script>
+  <script src="screens/results.js"></script>
+  <script src="screens/settings.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "mrrobotbot",
+  "version": "0.1.0",
+  "description": "Terminal-styled local security auditor: Semgrep + Claude two-pass code scan.",
+  "author": "MrRobotBot",
+  "main": "src/main/index.js",
+  "private": true,
+  "bin": {
+    "mrrobotbot-cli": "src/cli/index.js"
+  },
+  "scripts": {
+    "start": "electron .",
+    "scan": "node src/cli/index.js",
+    "dist": "electron-builder build --win"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "@google/generative-ai": "^0.24.1",
+    "groq-sdk": "^1.5.0",
+    "openai": "^7.4.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "electron-winstaller@5.4.0": true
+  }
+}
