@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: npm test
+
+  security-scan:
+    name: MrRobotBot self-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - run: npm ci
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Install Gitleaks
+        run: |
+          curl -sSL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      # Blocking gate: Semgrep + Gitleaks against MrRobotBot's own source.
+      # No AI pass (no API key/cost in CI) -- this mirrors the pre-commit
+      # hook's own --semgrep-only philosophy. Known false positives are
+      # tracked in .mrrobotbot-baseline.json (committed, reviewed) rather
+      # than raising the fail-on threshold.
+      - name: Security gate (Semgrep + Gitleaks)
+        run: node src/cli/index.js . --gitleaks --semgrep-only --fail-on high --format sarif --output mrrobot-gate.sarif
+
+      # Informational only, never fails the build: dependency-CVE tracking
+      # (npm audit + OSV) belongs on its own remediation timeline, not
+      # blocking every unrelated PR the moment a transitive advisory drops.
+      - name: Dependency audit (informational)
+        if: always()
+        run: node src/cli/index.js . --no-semgrep --deps --osv --semgrep-only --fail-on none --format json --output mrrobot-deps.json
+
+      - name: Upload scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mrrobotbot-reports
+          path: |
+            mrrobot-gate.sarif
+            mrrobot-deps.json
+
+      # Best-effort: GitHub code scanning requires Advanced Security on
+      # private repos, so this shouldn't fail the job if it's unavailable.
+      - name: Upload SARIF to code scanning
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: mrrobot-gate.sarif

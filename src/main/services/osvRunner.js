@@ -211,4 +211,7 @@ function runScan(rootDir, onProgress) {
   });
 }
 
-module.exports = { isApplicable, runScan };
+module.exports = {
+  isApplicable, runScan,
+  parseRequirementsTxt, parseGoMod, parseCargoLock, normalizeSeverity, toFinding,
+};
