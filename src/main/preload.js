@@ -37,6 +37,9 @@ const CHANNELS = {
   HOOK_INSTALL: 'hook:install',
   HOOK_UNINSTALL: 'hook:uninstall',
   FIX_SUGGEST: 'fix:suggest',
+  POC_CHECK_DOCKER: 'poc:check-docker',
+  POC_VERIFY: 'poc:verify',
+  SETTINGS_SET_POC_VERIFICATION: 'settings:set-poc-verification',
 };
 
 contextBridge.exposeInMainWorld('mrrobot', {
@@ -52,6 +55,7 @@ contextBridge.exposeInMainWorld('mrrobot', {
   setModel: (provider, model) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_MODEL, provider, model),
   setVerification: (enabled) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_VERIFICATION, enabled),
   setRecon: (enabled) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_RECON, enabled),
+  setPocVerification: (enabled) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_POC_VERIFICATION, enabled),
   setOllamaUrl: (url) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_OLLAMA_URL, url),
   setSetupComplete: (value) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_SETUP_COMPLETE, value),
   testKey: (provider) => ipcRenderer.invoke(CHANNELS.SETTINGS_TEST_KEY, provider),
@@ -95,4 +99,7 @@ contextBridge.exposeInMainWorld('mrrobot', {
   uninstallHook: (rootDir) => ipcRenderer.invoke(CHANNELS.HOOK_UNINSTALL, rootDir),
 
   suggestFix: (rootDir, finding) => ipcRenderer.invoke(CHANNELS.FIX_SUGGEST, rootDir, finding),
+
+  checkDocker: () => ipcRenderer.invoke(CHANNELS.POC_CHECK_DOCKER),
+  verifyPoc: (rootDir, finding) => ipcRenderer.invoke(CHANNELS.POC_VERIFY, rootDir, finding),
 });

@@ -128,4 +128,4 @@ async function suggestFix({ provider, apiKey, model, ollamaBaseUrl, rootDir, fin
   throw new Error(`Unknown provider: ${provider}`);
 }
 
-module.exports = { suggestFix };
+module.exports = { suggestFix, extractSnippet };

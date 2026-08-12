@@ -39,6 +39,19 @@ const SettingsScreen = (() => {
       : 'npm not found on PATH (optional)';
   }
 
+  async function refreshDockerStatus() {
+    const dot = document.getElementById('poc-docker-dot');
+    const status = document.getElementById('poc-docker-status');
+    status.textContent = 'checking Docker…';
+    dot.className = 'status-dot pending';
+
+    const docker = await IpcClient.checkDocker();
+    dot.className = 'status-dot ' + (docker.installed ? 'ok' : 'bad');
+    status.textContent = docker.installed
+      ? `Docker detected (${docker.version})`
+      : 'Docker not found — install Docker Desktop (or the Docker engine) to use this';
+  }
+
   const TOOL_LABELS = { semgrep: 'Semgrep', gitleaks: 'Gitleaks', npm: 'npm / Node.js' };
 
   async function installMissingTools() {
@@ -97,6 +110,7 @@ const SettingsScreen = (() => {
     selectProviderCard(settings.provider);
     document.getElementById('verification-checkbox').checked = settings.verificationEnabled;
     document.getElementById('recon-checkbox').checked = settings.reconEnabled;
+    document.getElementById('poc-verification-checkbox').checked = settings.pocVerificationEnabled;
 
     const models = settings.providerModels || {};
     document.getElementById('claude-model-select').value = models.claude || 'claude-sonnet-5';
@@ -230,6 +244,7 @@ const SettingsScreen = (() => {
     AppState.show('screen-settings');
     refreshToolStatus();
     refreshProviderSettings();
+    refreshDockerStatus();
   }
 
   // Called once by main.js on launch if setup has never been completed --
@@ -242,6 +257,7 @@ const SettingsScreen = (() => {
     AppState.show('screen-settings');
     refreshToolStatus();
     refreshProviderSettings();
+    refreshDockerStatus();
   }
 
   function init() {
@@ -279,6 +295,11 @@ const SettingsScreen = (() => {
 
     document.getElementById('recon-checkbox').addEventListener('change', async (event) => {
       await IpcClient.setRecon(event.target.checked);
+    });
+
+    document.getElementById('poc-verification-checkbox').addEventListener('change', async (event) => {
+      await IpcClient.setPocVerification(event.target.checked);
+      ResultsScreen.refreshPocSetting();
     });
 
     wireKeySection('anthropic', {

@@ -3,3 +3,8 @@ release/
 *.log
 .env
 .claude/
+
+# Deliberately vulnerable local fixture for testing the PoC sandbox verifier
+# (see pocVerifier.js). Must never be committed -- it would trip the repo's
+# own MrRobotBot CI self-scan gate and pre-commit hook.
+test-target/

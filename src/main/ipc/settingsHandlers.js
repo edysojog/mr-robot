@@ -36,6 +36,7 @@ function registerSettingsHandlers() {
       recentFolders: localSettings.getRecentFolders(),
       verificationEnabled: localSettings.getVerificationEnabled(),
       reconEnabled: localSettings.getReconEnabled(),
+      pocVerificationEnabled: localSettings.getPocVerificationEnabled(),
       setupComplete: localSettings.getSetupComplete(),
     };
   });
@@ -67,6 +68,11 @@ function registerSettingsHandlers() {
 
   ipcMain.handle(CHANNELS.SETTINGS_SET_RECON, async (event, enabled) => {
     localSettings.setReconEnabled(enabled);
+    return { ok: true };
+  });
+
+  ipcMain.handle(CHANNELS.SETTINGS_SET_POC_VERIFICATION, async (event, enabled) => {
+    localSettings.setPocVerificationEnabled(enabled);
     return { ok: true };
   });
 

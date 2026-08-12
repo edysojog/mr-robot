@@ -34,6 +34,9 @@ const CHANNELS = {
   HOOK_INSTALL: 'hook:install',
   HOOK_UNINSTALL: 'hook:uninstall',
   FIX_SUGGEST: 'fix:suggest',
+  POC_CHECK_DOCKER: 'poc:check-docker',
+  POC_VERIFY: 'poc:verify',
+  SETTINGS_SET_POC_VERIFICATION: 'settings:set-poc-verification',
 };
 
 // Finding shape (see MrRobotBot.md / plan for full rationale):

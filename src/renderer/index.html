@@ -297,6 +297,20 @@
           </label>
         </div>
       </div>
+
+      <div class="panel">
+        <p class="prompt type-target">sandboxed PoC verification (experimental)</p>
+        <div class="row">
+          <label class="row" style="cursor:pointer;">
+            <input type="checkbox" id="poc-verification-checkbox" style="width:auto;" />
+            <span class="muted">adds a "verify in sandbox" button on command-injection findings only — writes a test harness and runs it in a locked-down, network-disabled Docker container to prove exploitability instead of just re-reading the code. Off by default. Requires Docker installed and running; JavaScript/TypeScript findings only for now.</span>
+          </label>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <span class="status-dot pending" id="poc-docker-dot"></span>
+          <span id="poc-docker-status" class="muted">checking Docker&hellip;</span>
+        </div>
+      </div>
       </div>
 
       <div class="panel" data-onboard-step="4">
@@ -334,6 +348,7 @@
     </section>
   </div>
 
+  <script src="../shared/pocClasses.js"></script>
   <script src="lib/state.js"></script>
   <script src="lib/ipcClient.js"></script>
   <script src="lib/typewriter.js"></script>

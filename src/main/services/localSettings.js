@@ -103,6 +103,18 @@ function setReconEnabled(value) {
   writeAll(settings);
 }
 
+// Experimental, off by default: sandboxed dynamic PoC verification for
+// command-injection findings only (needs Docker installed and running).
+function getPocVerificationEnabled() {
+  return readAll().pocVerificationEnabled === true;
+}
+
+function setPocVerificationEnabled(value) {
+  const settings = readAll();
+  settings.pocVerificationEnabled = !!value;
+  writeAll(settings);
+}
+
 // Drives first-run routing: false until the user has been through the
 // provider-setup screen once, at which point the app stops opening there
 // automatically and goes straight to the folder picker like normal.
@@ -156,6 +168,8 @@ module.exports = {
   setVerificationEnabled,
   getReconEnabled,
   setReconEnabled,
+  getPocVerificationEnabled,
+  setPocVerificationEnabled,
   getSetupComplete,
   setSetupComplete,
 };

@@ -9,6 +9,11 @@ const ResultsScreen = (() => {
   let currentFolderPath = null;
   let currentSummary = null;
   let groupBy = 'severity';
+  let pocVerificationEnabled = false;
+
+  // Class list + matching logic lives in shared/pocClasses.js so it stays in
+  // sync with pocVerifier.js (main process), which picks the harness template.
+  const isPocEligible = PocClasses.isPocEligible;
 
   function escapeHtml(str) {
     return String(str)
@@ -131,12 +136,14 @@ const ResultsScreen = (() => {
         ${finding.verifierReason ? `<div class="muted" style="margin-top:8px;font-size:12px;">verifier note: ${escapeHtml(finding.verifierReason)}</div>` : ''}
         <button class="open-file-btn" style="margin-top:10px;">open file</button>
         <button class="suggest-fix-btn" style="margin-top:10px;">suggest fix</button>
+        ${pocVerificationEnabled && isPocEligible(finding) ? '<button class="verify-poc-btn" style="margin-top:10px;">verify in sandbox (PoC)</button>' : ''}
         <button class="not-a-bug-btn" style="margin-top:10px;">mark as not a bug</button>
         <div class="not-a-bug-form" style="display:none;margin-top:10px;">
           <input class="not-a-bug-reason" type="text" placeholder="reason (optional)" />
           <button class="not-a-bug-confirm" style="margin-top:6px;">confirm suppress</button>
         </div>
         <div class="fix-output" style="display:none;margin-top:10px;"></div>
+        <div class="poc-output" style="display:none;margin-top:10px;"></div>
       </div>
     `;
     el.addEventListener('click', () => el.classList.toggle('expanded'));
@@ -165,6 +172,39 @@ const ResultsScreen = (() => {
       btn.disabled = false;
       btn.textContent = 'suggest fix';
     });
+    const verifyPocBtn = el.querySelector('.verify-poc-btn');
+    if (verifyPocBtn) {
+      verifyPocBtn.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        const btn = event.currentTarget;
+        const output = el.querySelector('.poc-output');
+        btn.disabled = true;
+        btn.textContent = 'verifying…';
+        output.style.display = 'block';
+        output.innerHTML = '<div class="log" style="height:auto;max-height:300px;">writing a test harness and running it in a locked-down Docker container — no network, read-only, capabilities dropped…</div>';
+        try {
+          const result = await IpcClient.verifyPoc(currentFolderPath, finding);
+          const verdictClass = result.verdict === 'VULNERABLE' ? 'danger' : result.verdict === 'NOT_VULNERABLE' ? 'ok' : 'warn';
+          const stderrBlock = result.stderr
+            ? `<div class="danger" style="font-size:12px;margin-top:6px;">stderr:</div><div class="log" style="height:auto;max-height:200px;">${escapeHtml(result.stderr)}</div>`
+            : '';
+          const retriedBlock = result.retried
+            ? `<div style="font-size:11px;opacity:0.7;margin-bottom:6px;">(harness had a syntax error on the first attempt — regenerated once)</div>`
+            : '';
+          output.innerHTML = `
+            <div class="${verdictClass}" style="font-weight:bold;margin-bottom:6px;">verdict: ${escapeHtml(result.verdict)}</div>
+            ${retriedBlock}
+            <div class="log" style="height:auto;max-height:300px;">${escapeHtml(result.stdout || '(no output)')}</div>
+            ${stderrBlock}
+          `;
+        } catch (err) {
+          output.innerHTML = `<div class="danger" style="font-size:12px;">verification failed: ${escapeHtml(err.message)}</div>`;
+        }
+        btn.disabled = false;
+        btn.textContent = 'verify in sandbox (PoC)';
+      });
+    }
+
     el.querySelector('.not-a-bug-btn').addEventListener('click', (event) => {
       event.stopPropagation();
       el.querySelector('.not-a-bug-form').style.display = 'block';
@@ -310,7 +350,7 @@ const ResultsScreen = (() => {
     });
   }
 
-  function show(findings, summary) {
+  async function show(findings, summary) {
     allFindings = findings;
     currentFolderPath = summary.folderPath;
     currentSummary = summary;
@@ -320,6 +360,9 @@ const ResultsScreen = (() => {
     document.getElementById('results-search').value = '';
     document.getElementById('results-groupby').value = 'severity';
     document.getElementById('results-sort').value = 'severity';
+
+    const settings = await IpcClient.getSettings();
+    pocVerificationEnabled = !!settings.pocVerificationEnabled;
 
     renderSummary(findings, summary);
     buildFilterPills('results-severity-filters', SEVERITY_ORDER, activeSeverities, '');
@@ -386,5 +429,16 @@ const ResultsScreen = (() => {
     document.getElementById('export-sarif-btn').addEventListener('click', () => doExport('sarif'));
   }
 
-  return { init, show };
+  // Called from settings.js when the PoC-verification toggle changes, so an
+  // already-open results screen picks up the new setting immediately rather
+  // than staying stale until the next full scan (show() is the only other
+  // place that reads it). No-op if no scan has been shown yet this session.
+  async function refreshPocSetting() {
+    if (!currentSummary) return;
+    const settings = await IpcClient.getSettings();
+    pocVerificationEnabled = !!settings.pocVerificationEnabled;
+    renderList();
+  }
+
+  return { init, show, refreshPocSetting };
 })();
