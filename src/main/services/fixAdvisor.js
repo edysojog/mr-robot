@@ -4,6 +4,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const Groq = require('groq-sdk');
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { getRemediationGuide } = require('./remediationGuides');
 
 // Lines of surrounding source shown on each side of the finding, so the
 // advisor sees enough context to write a real fix without sending the
@@ -43,9 +44,14 @@ function extractSnippet(rootDir, finding) {
 
 function buildUserContent(finding, snippet) {
   const findingText = `Finding: ${finding.title}\nSeverity: ${finding.severity}\nLocation: ${finding.file}:${finding.line}\nDescription: ${finding.description || ''}`;
-  return snippet
-    ? `${findingText}\n\nSurrounding source (line-numbered):\n${snippet}`
-    : `${findingText}\n\n(Source file not available for this finding -- it may be a dependency-level finding with no single code location.)`;
+  const sourceText = snippet
+    ? `Surrounding source (line-numbered):\n${snippet}`
+    : `(Source file not available for this finding -- it may be a dependency-level finding with no single code location.)`;
+  const guide = getRemediationGuide(finding);
+  const guideText = guide
+    ? `\n\nRemediation reference for this vulnerability class -- use it to inform the fix, but still tailor the fix to the actual code shown below:\n${guide}`
+    : '';
+  return `${findingText}\n\n${sourceText}${guideText}`;
 }
 
 async function suggestFix({ provider, apiKey, model, ollamaBaseUrl, rootDir, finding }) {
