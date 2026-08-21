@@ -19,7 +19,7 @@ const HELP = `
 MrRobotBot chat -- talk to the scanner instead of flagging it
 
 Usage:
-  mrrobotbot-chat [options]
+  mrrobot code [options]
 
 Options:
   --provider <name>       claude | groq   (default: claude)
@@ -202,7 +202,7 @@ async function main() {
   }
 
   if (!process.stdin.isTTY) {
-    process.stderr.write('mrrobotbot-chat needs an interactive terminal (stdin is not a TTY).\n');
+    process.stderr.write('mrrobot code needs an interactive terminal (stdin is not a TTY).\n');
     process.exit(2);
   }
 

@@ -2,9 +2,10 @@
 // (packages/tui) is built on, rather than an ANSI approximation of its look.
 // Shares ChatSession and the tool logic with the Node + Ink front-end
 // (chat.js) via chatCore.js, required here through Bun's CJS interop (Bun
-// supports require() from a .tsx entry same as any other module). Run with
-// `bun run src/cli/chatOpentui.tsx` -- plain Node cannot run this file,
-// OpenTUI's native renderer only initializes under Bun/Deno.
+// supports require() from a .tsx entry same as any other module). Reached
+// via `mrrobot code`, which locates bun and runs this file -- plain Node
+// cannot, OpenTUI's native renderer only initializes under Bun/Deno, which
+// is why the dispatcher falls back to chat.js when bun is missing.
 
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -22,7 +23,7 @@ const HELP = `
 MrRobotBot chat (OpenTUI) -- opencode-style terminal UI, Bun-only
 
 Usage:
-  bun run src/cli/chatOpentui.tsx [options]
+  mrrobot code [options]
 
 Options:
   --provider <name>       claude | groq   (default: claude)
@@ -147,11 +148,13 @@ const COLOR_CONFIRM_FG = "#04170a";
 // at the same height. Bitmaps also mean the glyphs can be edited as pictures
 // rather than as pre-assembled full-width strings, which are impossible to
 // keep aligned by hand once a letter changes.
-// Kept small deliberately -- 5 pixels wide by 6 tall, so three text rows.
-// A diagonal drawn across ten rows has to step, and those steps are the
-// staircase; at this size every stroke is either a full column or a single
-// half-block, so the M's inner peak resolves to one ▀ and the O's corners to
-// one ▄/▀ each. Nothing has room to staircase.
+// Kept small deliberately -- 7 pixels wide by 6 tall, so three text rows
+// before the shadow adds a fourth. A diagonal drawn across ten rows has to
+// step, and those steps are the staircase; at this size every stroke is
+// either a full column or a single half-block, so the M's inner peak
+// resolves to one ▀ and the O's corners to one ▄/▀ each. Nothing has room
+// to staircase. The width is 7 rather than 5 so the counters can hold the
+// drop shadow without it closing them up.
 const GLYPH_PIXEL_ROWS = 6;
 const BITMAPS: Record<string, string[]> = {
   M: [

@@ -6,8 +6,7 @@
   "main": "src/main/index.js",
   "private": true,
   "bin": {
-    "mrrobotbot-cli": "src/cli/index.js",
-    "mrrobotbot-chat": "src/cli/chat.js"
+    "mrrobot": "src/cli/mrrobot.js"
   },
   "scripts": {
     "start": "electron .",

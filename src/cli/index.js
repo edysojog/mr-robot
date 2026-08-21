@@ -33,7 +33,7 @@ const HELP = `
 MrRobotBot CLI -- headless Semgrep + AI security scan
 
 Usage:
-  mrrobotbot-cli <folder> [options]
+  mrrobot audit <folder> [options]
 
 Options:
   --diff                 Only scan files changed since the last commit (git required)
