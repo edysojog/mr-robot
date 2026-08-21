@@ -20,17 +20,18 @@ function writeAll(settings) {
   fs.writeFileSync(settingsFilePath(), JSON.stringify(settings, null, 2));
 }
 
-const PROVIDERS = ['mock', 'groq', 'claude', 'gemini', 'openai', 'deepseek', 'ollama'];
-const DEFAULT_PROVIDER = 'mock';
-// mock needs no key (canned findings) and ollama needs no key (local,
-// unauthenticated by default) -- every other provider does.
-const KEYLESS_PROVIDERS = ['mock', 'ollama'];
+// mock is still a valid CLI provider (src/cli/index.js has its own
+// KEYLESS_PROVIDERS) but isn't offered as a GUI choice -- not selectable
+// via Settings/onboarding, so it's left out of this list.
+const PROVIDERS = ['groq', 'claude', 'gemini', 'openai', 'deepseek', 'ollama'];
+const DEFAULT_PROVIDER = 'groq';
+// ollama needs no key (local, unauthenticated by default) -- every other
+// GUI-selectable provider does.
+const KEYLESS_PROVIDERS = ['ollama'];
 
 function getProvider() {
   const settings = readAll();
   if (PROVIDERS.includes(settings.provider)) return settings.provider;
-  // Migrate the old mock-mode boolean if a provider hasn't been chosen yet.
-  if (settings.useMockClaude) return 'mock';
   return DEFAULT_PROVIDER;
 }
 

@@ -8,6 +8,7 @@ const { registerBaselineHandlers } = require('./ipc/baselineHandlers');
 const { registerHistoryHandlers } = require('./ipc/historyHandlers');
 const { registerHookHandlers } = require('./ipc/hookHandlers');
 const { registerChatHandlers } = require('./ipc/chatHandlers');
+const { registerFixHandlers } = require('./ipc/fixHandlers');
 
 let mainWindow = null;
 
@@ -39,6 +40,7 @@ app.whenReady().then(() => {
   registerHistoryHandlers();
   registerHookHandlers();
   registerChatHandlers();
+  registerFixHandlers();
   createWindow();
 
   app.on('activate', () => {

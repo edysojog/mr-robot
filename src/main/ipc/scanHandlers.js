@@ -5,6 +5,7 @@ const { CHANNELS } = require('../../shared/types');
 const semgrepRunner = require('../services/semgrepRunner');
 const gitleaksRunner = require('../services/gitleaksRunner');
 const npmAuditRunner = require('../services/npmAuditRunner');
+const osvRunner = require('../services/osvRunner');
 const fileWalker = require('../services/fileWalker');
 const findingsMerger = require('../services/findingsMerger');
 const baselineStore = require('../services/baselineStore');
@@ -46,7 +47,7 @@ const activeScans = new Map();
 function registerScanHandlers() {
   ipcMain.handle(CHANNELS.SCAN_START, async (event, folderPath, diffMode, tools) => {
     const scanId = crypto.randomUUID();
-    const enabled = { semgrep: true, gitleaks: true, npmAudit: true, ai: true, ...tools };
+    const enabled = { semgrep: true, gitleaks: true, npmAudit: true, osv: true, ai: true, ...tools };
     const win = BrowserWindow.fromWebContents(event.sender);
 
     const send = (channel, payload) => {
@@ -123,7 +124,17 @@ function registerScanHandlers() {
 
         if (isCancelled()) return;
 
-        const staticFindings = [...semgrepFindings, ...gitleaksFindings, ...npmAuditFindings];
+        let osvFindings = [];
+        if (enabled.osv) {
+          const result = await osvRunner.runScan(folderPath, progress);
+          osvFindings = result.findings;
+        } else {
+          progress('OSV dependency scan skipped (unchecked)');
+        }
+
+        if (isCancelled()) return;
+
+        const staticFindings = [...semgrepFindings, ...gitleaksFindings, ...npmAuditFindings, ...osvFindings];
 
         let claudeFindings = [];
         let claudePartial = false;

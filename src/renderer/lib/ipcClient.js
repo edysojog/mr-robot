@@ -11,6 +11,7 @@ const IpcClient = {
   checkSemgrep: () => window.mrrobot.checkSemgrep(),
   checkGitleaks: () => window.mrrobot.checkGitleaks(),
   checkNpmAudit: () => window.mrrobot.checkNpmAudit(),
+  installTool: (tool) => window.mrrobot.installTool(tool),
   setProvider: (provider) => window.mrrobot.setProvider(provider),
   setModel: (provider, model) => window.mrrobot.setModel(provider, model),
   setVerification: (enabled) => window.mrrobot.setVerification(enabled),
@@ -40,4 +41,5 @@ const IpcClient = {
 
   chatAboutFinding: (rootDir, finding, history, question) =>
     window.mrrobot.chatAboutFinding(rootDir, finding, history, question),
+  suggestFix: (rootDir, finding) => window.mrrobot.suggestFix(rootDir, finding),
 };

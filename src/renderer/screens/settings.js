@@ -1,6 +1,8 @@
 const SettingsScreen = (() => {
-  const PROVIDERS = ['mock', 'groq', 'claude', 'gemini', 'openai', 'deepseek', 'ollama'];
+  const PROVIDERS = ['groq', 'claude', 'gemini', 'openai', 'deepseek', 'ollama'];
+  const STEP_COUNT = 5; // intro, choose provider, configure provider, passes, tools
   let onboarding = false;
+  let currentStep = 0;
 
   async function refreshToolStatus() {
     const semgrepDot = document.getElementById('settings-semgrep-dot');
@@ -35,6 +37,50 @@ const SettingsScreen = (() => {
     npmAuditStatus.textContent = npmAudit.installed
       ? `npm detected (${npmAudit.version})`
       : 'npm not found on PATH (optional)';
+  }
+
+  const TOOL_LABELS = { semgrep: 'Semgrep', gitleaks: 'Gitleaks', npm: 'npm / Node.js' };
+
+  async function installMissingTools() {
+    const btn = document.getElementById('install-tools-btn');
+    const logEl = document.getElementById('install-tools-log');
+    logEl.style.display = 'block';
+    logEl.textContent = 'checking what\'s missing…\n';
+    btn.disabled = true;
+
+    const [semgrep, gitleaks, npmAudit] = await Promise.all([
+      IpcClient.checkSemgrep(),
+      IpcClient.checkGitleaks(),
+      IpcClient.checkNpmAudit(),
+    ]);
+    const missing = [];
+    if (!semgrep.installed) missing.push('semgrep');
+    if (!gitleaks.installed) missing.push('gitleaks');
+    if (!npmAudit.installed) missing.push('npm');
+
+    if (missing.length === 0) {
+      logEl.textContent += 'everything is already installed.\n';
+      btn.disabled = false;
+      return;
+    }
+
+    for (const tool of missing) {
+      const label = TOOL_LABELS[tool];
+      logEl.textContent += `installing ${label}…\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+      try {
+        const result = await IpcClient.installTool(tool);
+        logEl.textContent += result.success
+          ? `${label}: installed via ${result.method}\n`
+          : `${label}: no package manager on this machine could install it (tried ${result.attempts.map((a) => a.label).join(', ')}) — install manually\n`;
+      } catch (err) {
+        logEl.textContent += `${label}: error — ${err.message}\n`;
+      }
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    btn.disabled = false;
+    await refreshToolStatus();
   }
 
   function selectProviderCard(provider) {
@@ -135,27 +181,65 @@ const SettingsScreen = (() => {
     });
   }
 
+  // Onboarding renders as a 5-slide carousel (intro / provider / configure /
+  // passes / tools) with dot indicators and < > nav. Regular settings (opened
+  // later via the "settings" button) ignores steps entirely -- everything
+  // shows on one page, same as before.
+  function renderDots() {
+    const dotsEl = document.getElementById('carousel-dots');
+    dotsEl.innerHTML = '';
+    for (let i = 0; i < STEP_COUNT; i++) {
+      const dot = document.createElement('span');
+      dot.className = 'carousel-dot' + (i === currentStep ? ' active' : '');
+      dot.addEventListener('click', () => { currentStep = i; applyStep(); });
+      dotsEl.appendChild(dot);
+    }
+  }
+
   function updateBackButton() {
-    document.getElementById('back-btn').textContent = onboarding ? 'Continue →' : '← Back';
+    const btn = document.getElementById('back-btn');
+    if (onboarding) {
+      btn.textContent = "Let's go →";
+      btn.style.display = currentStep === STEP_COUNT - 1 ? '' : 'none';
+    } else {
+      btn.textContent = '← Back';
+      btn.style.display = '';
+    }
+  }
+
+  function applyStep() {
+    document.getElementById('screen-settings').classList.toggle('onboarding-mode', onboarding);
+    document.querySelectorAll('[data-onboard-step]').forEach((el) => {
+      const step = Number(el.dataset.onboardStep);
+      // step 0 (the welcome blurb) only ever shows during onboarding's first
+      // slide -- everything else shows fully outside onboarding, like before.
+      const visible = step === 0 ? (onboarding && currentStep === 0) : (!onboarding || step === currentStep);
+      el.style.display = visible ? '' : 'none';
+    });
+    document.getElementById('carousel-nav').style.display = onboarding ? 'flex' : 'none';
+    document.getElementById('carousel-prev').disabled = currentStep === 0;
+    document.getElementById('carousel-next').disabled = currentStep === STEP_COUNT - 1;
+    renderDots();
+    updateBackButton();
+    if (onboarding) Typewriter.play(`[data-onboard-step="${currentStep}"]`);
   }
 
   // Called on every normal "settings" button click -- not the first-run flow.
   function show() {
     onboarding = false;
-    document.getElementById('settings-intro').style.display = 'none';
-    updateBackButton();
+    applyStep();
     AppState.show('screen-settings');
     refreshToolStatus();
     refreshProviderSettings();
   }
 
   // Called once by main.js on launch if setup has never been completed --
-  // same screen, but with the welcome blurb shown and the back button
-  // reframed as moving forward rather than returning to a prior screen.
+  // same screen, but walked through as a carousel starting at the welcome
+  // slide, with "Let's go" only reachable on the final step.
   function showOnboarding() {
     onboarding = true;
-    document.getElementById('settings-intro').style.display = 'block';
-    updateBackButton();
+    currentStep = 0;
+    applyStep();
     AppState.show('screen-settings');
     refreshToolStatus();
     refreshProviderSettings();
@@ -171,6 +255,14 @@ const SettingsScreen = (() => {
     });
 
     document.getElementById('recheck-semgrep-btn').addEventListener('click', refreshToolStatus);
+    document.getElementById('install-tools-btn').addEventListener('click', installMissingTools);
+
+    document.getElementById('carousel-prev').addEventListener('click', () => {
+      if (currentStep > 0) { currentStep--; applyStep(); }
+    });
+    document.getElementById('carousel-next').addEventListener('click', () => {
+      if (currentStep < STEP_COUNT - 1) { currentStep++; applyStep(); }
+    });
 
     document.querySelectorAll('.provider-card').forEach((card) => {
       card.addEventListener('click', async () => {
@@ -178,6 +270,7 @@ const SettingsScreen = (() => {
         selectProviderCard(provider);
         await IpcClient.setProvider(provider);
         FolderSelectScreen.refreshStatus();
+        if (onboarding && currentStep === 1) { currentStep = 2; applyStep(); }
       });
     });
 

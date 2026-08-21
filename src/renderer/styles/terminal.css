@@ -107,6 +107,42 @@ input { width: 100%; }
 
 .prompt::before { content: '$ '; color: var(--accent-dim); }
 
+/* Terminal-style typing effect used by the onboarding carousel: text is
+   revealed char-by-char with a blinking block cursor at the writing edge. */
+.term-line::before { content: '> '; color: var(--muted); }
+
+@keyframes blink { 50% { opacity: 0; } }
+
+.type-target.typing::after {
+  content: '\2588';
+  display: inline-block;
+  color: var(--accent);
+  margin-left: 2px;
+  animation: blink 0.9s steps(1) infinite;
+}
+
+.term-boot, .screen.onboarding-mode .onboard-slide-area .log { text-align: left; }
+
+.finding-group {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.finding-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: var(--panel);
+  user-select: none;
+}
+.finding-group-header:hover { background: var(--bg); }
+.finding-group-arrow { color: var(--accent-dim); font-size: 10px; width: 10px; display: inline-block; }
+.finding-group-label { text-transform: uppercase; font-weight: bold; letter-spacing: 1px; font-size: 13px; }
+.finding-group-body { padding: 10px 14px; border-top: 1px solid var(--border); background: var(--bg); }
+
 .finding {
   border: 1px solid var(--border);
   border-left-width: 4px;
@@ -165,6 +201,130 @@ select option {
 .filter-pill input { width: auto; }
 .filter-pill.active { border-color: var(--accent-dim); }
 
+.folder-picker-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 24px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: pointer;
+  color: var(--fg);
+}
+.folder-picker-btn:hover { border-color: var(--accent-dim); background: var(--bg); }
+.folder-picker-icon { font-size: 18px; color: var(--accent-dim); }
+.folder-picker-label { font-weight: bold; color: var(--accent); }
+.folder-picker-path { font-size: 12px; word-break: break-all; text-align: center; }
+
+.info-inline-value { color: var(--accent); font-weight: bold; }
+
+/* Diff mode gets top billing as the one real decision on this screen --
+   a full-width row with a proper toggle switch, instead of matching the
+   plain file-count/size stat line above it or blending into the tool-card
+   grid below. */
+.diff-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+.diff-toggle:hover { border-color: var(--accent-dim); }
+.diff-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.diff-toggle:has(input:checked) { border-color: var(--accent); background: var(--bg); }
+.diff-toggle:has(input:checked) .diff-toggle-title { color: var(--accent); }
+.diff-toggle:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
+.diff-toggle:has(input:focus-visible) { outline: 1px solid var(--accent); outline-offset: 2px; }
+.diff-toggle-text { display: flex; flex-direction: column; gap: 3px; }
+.diff-toggle-title { font-weight: bold; font-size: 14px; }
+
+.switch { flex-shrink: 0; }
+.switch-track {
+  display: block;
+  width: 42px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  position: relative;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.diff-toggle:has(input:checked) .switch-track { background: var(--accent-dim); border-color: var(--accent); }
+.diff-toggle:has(input:checked) .switch-thumb { transform: translateX(20px); background: var(--accent); }
+
+#start-scan-btn {
+  width: 100%;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: bold;
+  margin-top: 4px;
+}
+#start-scan-btn:not(:disabled) {
+  background: var(--accent);
+  color: #06120b;
+  border-color: var(--accent);
+}
+#start-scan-btn:not(:disabled):hover { background: #4dffa0; }
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.tool-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 88px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+.tool-card:hover { border-color: var(--accent-dim); }
+.tool-card input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.tool-card:has(input:checked) { border-color: var(--accent); background: var(--bg); }
+.tool-card:has(input:checked) .tool-card-name { color: var(--accent); }
+.tool-card:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
+.tool-card:has(input:focus-visible) { outline: 1px solid var(--accent); outline-offset: 2px; }
+.tool-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tool-card-name { font-weight: bold; }
+.tool-card-status { font-size: 11.5px; line-height: 1.4; }
+
 .provider-card {
   display: flex;
   flex-direction: column;
@@ -180,6 +340,23 @@ select option {
 .provider-card.active { border-color: var(--accent); color: var(--accent); background: var(--bg); }
 .provider-card.active .muted { color: var(--accent-dim); }
 
+.recent-folder-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.recent-folder-card:last-child { margin-bottom: 0; }
+.recent-folder-card:hover { border-color: var(--accent-dim); background: var(--bg); }
+.recent-folder-icon { color: var(--accent-dim); font-size: 11px; flex-shrink: 0; }
+.recent-folder-text { display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.recent-folder-name { color: var(--fg); font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recent-folder-parent { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 .recent-folder-row {
   display: flex;
   justify-content: space-between;
@@ -191,6 +368,73 @@ select option {
 .recent-folder-row:hover { background: var(--bg); }
 .recent-folder-row .path { color: var(--fg); }
 
+/* Onboarding carousel: full-screen, centered slide content, nav pinned to
+   the bottom. Scoped under .onboarding-mode so the regular settings screen
+   (opened later via the "settings" button) keeps its normal block layout. */
+.screen.onboarding-mode.active {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.screen.onboarding-mode .onboard-slide-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  overflow: auto;
+  padding: 32px 48px;
+}
+
+.screen.onboarding-mode .onboard-slide-area > div,
+.screen.onboarding-mode .onboard-slide-area > .panel {
+  width: 100%;
+  max-width: 640px;
+}
+
+.screen.onboarding-mode .onboard-slide-area .row {
+  justify-content: center;
+}
+
+.screen.onboarding-mode .onboard-bottom-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px 28px;
+  border-top: 1px solid var(--border);
+}
+
+.carousel-nav {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin: 0;
+}
+.carousel-nav button {
+  min-width: 40px;
+  padding: 6px 10px;
+}
+.carousel-dots {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.carousel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.carousel-dot:hover { border-color: var(--accent-dim); }
+.carousel-dot.active { background: var(--accent); border-color: var(--accent); }
+
 .log {
   background: #060907;
   border: 1px solid var(--border);
@@ -199,4 +443,12 @@ select option {
   height: 260px;
   overflow-y: auto;
   white-space: pre-wrap;
+}
+
+.log-cursor::before { content: '$ '; color: var(--accent-dim); }
+.log-cursor::after {
+  content: '\2588';
+  display: inline-block;
+  color: var(--accent);
+  animation: blink 0.9s steps(1) infinite;
 }

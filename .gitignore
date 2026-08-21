@@ -2,8 +2,9 @@ node_modules/
 release/
 *.log
 .env
+.claude/
 
-# Local launch scripts -- these hold API keys inline.
+# Local launch scripts; these hold API keys inline.
 .run_*.ps1
 
 # Loose screenshots dropped in the project root while working; anything the

@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: npm test
+
+  security-scan:
+    name: MrRobotBot self-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.x'
+
+      - run: npm ci
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Install Gitleaks
+        run: |
+          curl -sSL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      # Blocking gate: Semgrep + Gitleaks against MrRobotBot's own source.
+      # No AI pass (no API key/cost in CI) -- this mirrors the pre-commit
+      # hook's own --semgrep-only philosophy. Known false positives are
+      # tracked in .mrrobotbot-baseline.json (committed, reviewed) rather
+      # than raising the fail-on threshold.
+      - name: Security gate (Semgrep + Gitleaks)
+        run: node src/cli/index.js . --gitleaks --semgrep-only --fail-on high --format sarif --output mrrobot-gate.sarif
+
+      # Informational only, never fails the build: dependency-CVE tracking
+      # (npm audit + OSV) belongs on its own remediation timeline, not
+      # blocking every unrelated PR the moment a transitive advisory drops.
+      - name: Dependency audit (informational)
+        if: always()
+        run: node src/cli/index.js . --no-semgrep --deps --osv --semgrep-only --fail-on none --format json --output mrrobot-deps.json
+
+      - name: Upload scan reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mrrobotbot-reports
+          path: |
+            mrrobot-gate.sarif
+            mrrobot-deps.json
+
+      # Code scanning (Security tab) needs GitHub Advanced Security, which
+      # isn't available on a private repo without it -- rather than upload
+      # there and silently no-op ("resource not accessible by integration"),
+      # write the actual findings into the run's own job summary instead.
+      - name: Write findings to job summary
+        if: always()
+        run: node scripts/ci-summary.js

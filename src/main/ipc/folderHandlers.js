@@ -6,6 +6,7 @@ const fileWalker = require('../services/fileWalker');
 const localSettings = require('../services/localSettings');
 const gitDiff = require('../services/gitDiff');
 const npmAuditRunner = require('../services/npmAuditRunner');
+const osvRunner = require('../services/osvRunner');
 
 async function walkAndSummarize(rootDir) {
   const [inventory, isGitRepo] = await Promise.all([
@@ -22,6 +23,7 @@ async function walkAndSummarize(rootDir) {
     isGitRepo,
     changedFileCount,
     hasPackageJson: npmAuditRunner.isApplicable(rootDir),
+    hasDependencyManifest: osvRunner.isApplicable(rootDir),
   };
 }
 

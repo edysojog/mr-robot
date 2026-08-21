@@ -14,6 +14,7 @@ const fileWalker = require('../main/services/fileWalker');
 const semgrepRunner = require('../main/services/semgrepRunner');
 const gitleaksRunner = require('../main/services/gitleaksRunner');
 const npmAuditRunner = require('../main/services/npmAuditRunner');
+const osvRunner = require('../main/services/osvRunner');
 const gitDiff = require('../main/services/gitDiff');
 const findingsMerger = require('../main/services/findingsMerger');
 const baselineStore = require('../main/services/baselineStore');
@@ -42,6 +43,8 @@ Options:
   --no-semgrep           Skip the Semgrep pass
   --gitleaks             Also run a Gitleaks secrets scan (needs gitleaks on PATH)
   --deps                 Also run npm audit for dependency vulnerabilities (needs package.json)
+  --osv                  Also cross-reference pinned deps against OSV.dev (requirements.txt/go.mod/
+                         Cargo.lock -- keyless public API, no local tool needed)
   --no-verify            Skip the verifier pass -- report the AI scanner's raw candidates unchecked
   --no-recon             Skip the recon pass -- no upfront codebase-mapping call before the scanner
   --specialists          Replace the single generalist scanner call per batch with four parallel
@@ -81,6 +84,7 @@ function parseArgs(argv) {
       case '--no-semgrep': args.noSemgrep = true; break;
       case '--gitleaks': args.gitleaks = true; break;
       case '--deps': args.deps = true; break;
+      case '--osv': args.osv = true; break;
       case '--no-verify': args.noVerify = true; break;
       case '--no-recon': args.noRecon = true; break;
       case '--specialists': args.specialists = true; break;
@@ -160,6 +164,7 @@ async function main() {
   const runSemgrep = !args.noSemgrep;
   const runGitleaks = !!args.gitleaks;
   const runDeps = !!args.deps;
+  const runOsv = !!args.osv;
 
   if (runSemgrep) {
     const semgrepStatus = await semgrepRunner.checkInstalled();
@@ -224,7 +229,14 @@ async function main() {
         npmAuditFindings = result.findings;
       }
 
-      const staticFindings = [...semgrepFindings, ...gitleaksFindings, ...npmAuditFindings];
+      let osvFindings = [];
+      if (runOsv) {
+        log('running OSV dependency scan');
+        const result = await osvRunner.runScan(folderPath, log);
+        osvFindings = result.findings;
+      }
+
+      const staticFindings = [...semgrepFindings, ...gitleaksFindings, ...npmAuditFindings, ...osvFindings];
 
       let aiFindings = [];
       let claudePartial = false;
