@@ -447,6 +447,7 @@ export function ApiKeyPrompt(props: { provider: string; onSubmit: (provider: str
   const [key, setKey] = createSignal("");
   const [error, setError] = createSignal("");
   watchTerminalSize();
+  const quit = useQuit();
 
   // Switching provider re-checks that provider's env var -- someone with
   // GROQ_API_KEY set who lands here because --provider defaulted to claude
@@ -463,7 +464,7 @@ export function ApiKeyPrompt(props: { provider: string; onSubmit: (provider: str
   };
 
   useKeyboard((e: any) => {
-    if (e.ctrl && e.name === "c") process.exit(0);
+    if (e.ctrl && e.name === "c") return quit();
     if (e.name === "tab") {
       const i = PROVIDERS.indexOf(provider());
       setProvider(PROVIDERS[(i + 1) % PROVIDERS.length]);
@@ -541,6 +542,27 @@ export function ApiKeyPrompt(props: { provider: string; onSubmit: (provider: str
       </box>
     </box>
   );
+}
+
+// Quitting has to hand the terminal back before the process goes away.
+//
+// OpenTUI runs in the alternate screen buffer, which has no scrollback of
+// its own, and it registers its cleanup (renderer.destroy(), which restores
+// the main buffer and disables mouse tracking) against *signals* --
+// SIGINT/SIGTERM/SIGQUIT and friends. A bare process.exit() delivers no
+// signal, so none of that runs: the shell comes back still pointed at the
+// alternate buffer with mouse reporting on, and scrolling appears dead
+// until the terminal is reset. Calling destroy() first is what makes
+// ctrl+c leave the terminal usable.
+function useQuit() {
+  const renderer = useRenderer();
+  return () => {
+    try {
+      renderer.destroy();
+    } finally {
+      process.exit(0);
+    }
+  };
 }
 
 // OpenTUI learns about terminal resizes from SIGWINCH alone. Node only
@@ -645,6 +667,7 @@ export function App(props: { session: any; banner: string }) {
   const [confirmResolve, setConfirmResolve] = createSignal<((v: boolean) => void) | null>(null);
   const spinner = createSpinner();
   watchTerminalSize();
+  const quit = useQuit();
   let idCounter = 0;
   let inputRef: any;
 
@@ -692,7 +715,7 @@ export function App(props: { session: any; banner: string }) {
   });
 
   useKeyboard((key: any) => {
-    if (key.ctrl && key.name === "c") process.exit(0);
+    if (key.ctrl && key.name === "c") return quit();
   });
 
   async function handleSubmit(raw: string) {
@@ -715,7 +738,7 @@ export function App(props: { session: any; banner: string }) {
     if (busy()) return;
 
     if (!text) return;
-    if (text === "/exit" || text === "/quit") process.exit(0);
+    if (text === "/exit" || text === "/quit") return quit();
 
     pushLog(text, "user");
     setBusy(true);
