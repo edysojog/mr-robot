@@ -5,6 +5,7 @@
   "author": "MrRobotBot",
   "main": "src/main/index.js",
   "private": true,
+  "license": "MIT",
   "bin": {
     "mrrobot": "src/cli/mrrobot.js"
   },

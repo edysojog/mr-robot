@@ -161,6 +161,68 @@ First launch walks you through picking a provider and checking which tools are i
 
 Installed from the app, on git repositories. It runs `--diff --semgrep-only --fail-on high` before each commit, so it is fast and free, and blocks the commit if your changes introduce a new high or critical finding. It will not overwrite a hook it did not write, and uninstalling only removes its own.
 
+## Running it in CI
+
+`mrrobot audit` exits 1 when it finds something at or above `--fail-on`, and writes SARIF that GitHub and GitLab code scanning both understand. That is enough to gate a pull request:
+
+```yaml
+name: security
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - run: npm ci
+      - run: pip install semgrep
+
+      # No API key in CI, so no AI pass. Fast, free, and deterministic.
+      - name: Security gate
+        run: node src/cli/index.js . --semgrep-only --fail-on high --format sarif --output results.sarif
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sarif
+          path: results.sarif
+```
+
+Two things worth copying from how this repo gates itself. Keep the AI pass out of CI: it costs money per run and its output varies between runs, which makes for a flaky gate. And when a finding turns out to be a false positive, suppress it into the baseline file rather than raising the `--fail-on` threshold, so the gate stays meaningful for everything else.
+
+Dependency CVEs are worth running separately with `--fail-on none`, so a new advisory in a transitive package does not block an unrelated pull request the morning it drops.
+
+If you have GitHub Advanced Security, add `github/codeql-action/upload-sarif` to put findings in the Security tab. Without it that step fails with a permissions error, so upload the file as an artifact instead.
+
+## What gets sent where
+
+The static tools are entirely local. Semgrep, Gitleaks and npm audit read your files and make no network calls, so `--semgrep-only` never sends anything anywhere.
+
+The AI pass is the exception, and it is the only one. When it runs, the contents of the files being reviewed go to whichever provider you selected, along with the finding summaries from the static pass. That means:
+
+- **`mock`** sends nothing. It returns canned findings and exists so you can exercise the pipeline for free.
+- **`ollama`** sends your code to whatever address you configured, which is `localhost` by default. Nothing leaves the machine.
+- **Claude, Groq, DeepSeek, Gemini, OpenAI** are hosted, so your code goes to that company's API. Their retention and training policies are theirs, not this tool's. Check them if the code is sensitive.
+
+API keys are stored by Electron's `safeStorage` in the desktop app, which encrypts them at rest. The CLI never touches that store: it reads keys from flags or environment variables and keeps them in memory for the run. Scan history and the suppression baseline are local files.
+
+Anything else that reaches the network does so because you asked for it. `--enable-validation` is the only path that sends requests or runs commands, and every one of those stops for your approval first.
+
 ## Notes
 
 The AI passes are the least tested part of this. Most of the provider integrations have been exercised against the mock provider and their own error paths rather than a live key, so treat the first real run against any given provider as the actual test. Model defaults are best effort and go stale, which is why every provider takes a free-text model override.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
