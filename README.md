@@ -221,10 +221,6 @@ API keys are stored by Electron's `safeStorage` in the desktop app, which encryp
 
 Anything else that reaches the network does so because you asked for it. `--enable-validation` is the only path that sends requests or runs commands, and every one of those stops for your approval first.
 
-## Notes
-
-The AI passes are the least tested part of this. Most of the provider integrations have been exercised against the mock provider and their own error paths rather than a live key, so treat the first real run against any given provider as the actual test. Model defaults are best effort and go stale, which is why every provider takes a free-text model override.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
