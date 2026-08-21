@@ -191,4 +191,103 @@ function toSarif(model) {
   return JSON.stringify(sarif, null, 2);
 }
 
-module.exports = { buildReportModel, toJson, toMarkdown, toHtml, toSarif };
+// Human-readable report for an interactive terminal -- the other four
+// formats are all machine- or file-targeted, which left someone running a
+// scan by hand reading raw JSON.
+//
+// Colour is a caller-supplied flag rather than something detected here, so
+// this stays a pure function: the CLI decides based on TTY/NO_COLOR and the
+// GUI never asks for colour at all.
+const ANSI = {
+  reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[2m',
+  red: '\x1b[31m', yellow: '\x1b[33m', blue: '\x1b[34m',
+  gray: '\x1b[90m', brightRed: '\x1b[91m', green: '\x1b[32m',
+};
+const SEVERITY_ANSI = {
+  critical: ANSI.brightRed, high: ANSI.red, medium: ANSI.yellow,
+  low: ANSI.blue, info: ANSI.gray,
+};
+
+// npm audit rolls every advisory for a package into one description -- the
+// electron entry in this repo is ~4000 characters. Printed whole it buries
+// every other finding, so descriptions are wrapped and capped, with the
+// full text still available in the JSON/SARIF formats.
+const MAX_DESC_LINES = 3;
+
+function wrapText(text, width) {
+  const out = [];
+  for (const paragraph of String(text).split('\n')) {
+    let line = '';
+    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (candidate.length > width && line) { out.push(line); line = word; }
+      else line = candidate;
+    }
+    if (line) out.push(line);
+  }
+  return out;
+}
+
+function toTerminal(model, options = {}) {
+  const width = Math.max(40, Math.min(options.width || 100, 100));
+  const color = !!options.color;
+  const c = (code, s) => (color ? `${code}${s}${ANSI.reset}` : String(s));
+
+  const lines = [];
+  lines.push('');
+  lines.push(`  ${c(ANSI.bold, 'MrRobotBot')} ${c(ANSI.dim, '·')} ${model.folderPath}`);
+
+  const meta = [
+    `${model.totalFindings} finding${model.totalFindings === 1 ? '' : 's'}`,
+    `${model.confirmedByBoth} confirmed by both passes`,
+    ...(model.skippedCount ? [`${model.skippedCount} file(s) skipped`] : []),
+    ...(model.claudePartial ? ['AI pass incomplete'] : []),
+  ];
+  lines.push(`  ${c(ANSI.dim, meta.join(' · '))}`);
+
+  // Severity tally: zero counts stay dim so the ones that matter stand out.
+  const tally = SEVERITY_ORDER.map((sev) => {
+    const n = model.counts[sev] || 0;
+    return n > 0 ? c(SEVERITY_ANSI[sev], `${sev} ${n}`) : c(ANSI.dim, `${sev} ${n}`);
+  }).join(c(ANSI.dim, '   '));
+  lines.push(`  ${tally}`);
+
+  if (model.totalFindings === 0) {
+    lines.push('');
+    lines.push(`  ${c(ANSI.green, 'No findings.')}`);
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  // Numbered continuously across severity groups so the numbering matches
+  // the order findings are printed in.
+  let n = 0;
+  for (const group of model.grouped) {
+    lines.push('');
+    const heading = group.severity.toUpperCase();
+    lines.push(`  ${c(SEVERITY_ANSI[group.severity] + ANSI.bold, heading)} ${c(ANSI.dim, '─'.repeat(Math.max(0, width - heading.length - 4)))}`);
+
+    for (const f of group.findings) {
+      n += 1;
+      lines.push('');
+      lines.push(`  ${c(ANSI.bold, String(n).padStart(2))}  ${f.title}`);
+
+      const tags = [f.source, f.rule].filter(Boolean).join(' · ');
+      const location = `${f.file}:${f.line}`;
+      lines.push(`      ${c(ANSI.dim, location)}${tags ? c(ANSI.dim, `   ${tags}`) : ''}`);
+
+      if (f.description) {
+        const body = wrapText(f.description, width - 6);
+        for (const line of body.slice(0, MAX_DESC_LINES)) lines.push(`      ${c(ANSI.dim, line)}`);
+        if (body.length > MAX_DESC_LINES) {
+          lines.push(`      ${c(ANSI.dim, `… ${body.length - MAX_DESC_LINES} more line(s) -- see --format json`)}`);
+        }
+      }
+    }
+  }
+
+  lines.push('');
+  return lines.join('\n');
+}
+
+module.exports = { buildReportModel, toJson, toMarkdown, toHtml, toSarif, toTerminal };

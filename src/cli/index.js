@@ -57,7 +57,9 @@ Options:
                          ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY /
                          DEEPSEEK_API_KEY). Not needed for mock or ollama.
   --ollama-url <url>     Ollama server URL (default: http://localhost:11434/v1, or OLLAMA_BASE_URL)
-  --format <fmt>         json | markdown | html | sarif  (default: json)
+  --format <fmt>         terminal | json | markdown | html | sarif
+                         Default: terminal when printing to a terminal, json
+                         when redirected, piped, or writing with --output.
   --output <path>        Write the report here instead of stdout
   --fail-on <severity>   critical | high | medium | low | info | none  (default: high)
                          Exit 1 if any finding at or above this severity is found.
@@ -65,7 +67,10 @@ Options:
 `;
 
 function parseArgs(argv) {
-  const args = { folder: null, diff: false, provider: 'mock', format: 'json', failOn: 'high' };
+  // format is deliberately left unset rather than defaulted to 'json' here:
+  // main() needs to distinguish "user asked for json" from "user said
+  // nothing", since the latter picks the terminal report on a TTY.
+  const args = { folder: null, diff: false, provider: 'mock', failOn: 'high' };
   const rest = [...argv];
 
   while (rest.length > 0) {
@@ -249,15 +254,27 @@ async function main() {
     }
 
     const model = reportExporter.buildReportModel(findings, summary);
+
+    // Only stdout going to a real terminal gets the human-readable report.
+    // Redirecting to a file, piping into jq, or writing with --output all
+    // still default to JSON, so CI, the pre-commit hook and
+    // `mrrobot audit . > report.json` behave exactly as before. An explicit
+    // --format always wins over this.
+    const interactive = !!process.stdout.isTTY && !args.output;
+    const format = args.format || (interactive ? 'terminal' : 'json');
+    // NO_COLOR is the de-facto opt-out (no-color.org).
+    const useColor = !!process.stdout.isTTY && !process.env.NO_COLOR;
+
     const builders = {
       json: reportExporter.toJson,
       markdown: reportExporter.toMarkdown,
       html: reportExporter.toHtml,
       sarif: reportExporter.toSarif,
+      terminal: (m) => reportExporter.toTerminal(m, { color: useColor, width: process.stdout.columns }),
     };
-    const build = builders[args.format];
+    const build = builders[format];
     if (!build) {
-      log(`unknown --format: ${args.format} (expected json, markdown, html, or sarif)`);
+      log(`unknown --format: ${format} (expected terminal, json, markdown, html, or sarif)`);
       process.exit(2);
     }
     const content = build(model);
