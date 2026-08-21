@@ -7,7 +7,7 @@
 // cannot, OpenTUI's native renderer only initializes under Bun/Deno, which
 // is why the dispatcher falls back to chat.js when bun is missing.
 
-import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid";
+import { render, useKeyboard, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 const path = require("path");
@@ -346,29 +346,24 @@ const WORDMARK_ROWS: Span[][] = Array.from(
   (_, row) => wordmarkRowSpans(WORDMARK_GRID, row, (ink) => INK_COLORS[ink])
 );
 
+const KEY_FIELD_WIDTH = 52;
 const HINT_COLUMN = 20;
 const HINT_WIDTH = HINT_COLUMN + Math.max(...SPLASH_HINTS.map(([, desc]) => desc.length));
 
 // The banner block above the conversation: wordmark, then the session's
 // provider/folder line, then the hints. Lives inside the scrollbox so it
 // scrolls away as the conversation grows rather than pinning to the top.
-function Splash(props: { banner: string }) {
-  // The wordmark is a fixed 69 columns and cannot reflow. Centered in a
+// Shared by the splash and the API-key screen, so the two openings of the
+// app look like the same app.
+function Wordmark() {
+  // The wordmark is a fixed-width block and cannot reflow. Centered in a
   // narrower terminal it gets clipped at *both* ends -- losing the M and the
   // T -- so below its width it drops to a plain-text title instead.
   const dims = useTerminalDimensions();
   const roomForWordmark = () => dims().width >= LOGO_WIDTH + 4;
-  // The hint rows are a fixed-width two-column block and clip the same way
-  // the wordmark does -- at both ends, since they are centered. There is no
-  // useful narrow rendering of them, so they just drop out.
-  const roomForHints = () => dims().width >= HINT_WIDTH + 4;
 
-  // alignItems="center" centers each child on its own natural width, so the
-  // wordmark, the banner line and the hint block each get centered as a
-  // unit -- while the hint rows stay left-aligned *within* that block, which
-  // is what keeps their two columns lined up with each other.
   return (
-    <box flexDirection="column" alignItems="center" marginTop={1} marginBottom={1} flexShrink={0}>
+    <>
       {roomForWordmark() ? (
         <box flexDirection="column" flexShrink={0}>
           <For each={WORDMARK_ROWS}>
@@ -392,6 +387,27 @@ function Splash(props: { banner: string }) {
           <text fg={COLOR_MUTED}>{VERSION}</text>
         </box>
       )}
+    </>
+  );
+}
+
+// The banner block above the conversation: wordmark, then the session's
+// provider/folder line, then the hints. Lives inside the scrollbox so it
+// scrolls away as the conversation grows rather than pinning to the top.
+function Splash(props: { banner: string }) {
+  // The hint rows are a fixed-width two-column block and clip the same way
+  // the wordmark does -- at both ends, since they are centered. There is no
+  // useful narrow rendering of them, so they just drop out.
+  const dims = useTerminalDimensions();
+  const roomForHints = () => dims().width >= HINT_WIDTH + 4;
+
+  // alignItems="center" centers each child on its own natural width, so the
+  // wordmark, the banner line and the hint block each get centered as a
+  // unit -- while the hint rows stay left-aligned *within* that block, which
+  // is what keeps their two columns lined up with each other.
+  return (
+    <box flexDirection="column" alignItems="center" marginTop={1} marginBottom={1} flexShrink={0}>
+      <Wordmark />
       <box marginTop={1} flexShrink={0}>
         <text fg={COLOR_MUTED}>{props.banner}</text>
       </box>
@@ -407,6 +423,122 @@ function Splash(props: { banner: string }) {
           </For>
         </box>
       </Show>
+    </box>
+  );
+}
+
+const PROVIDERS = ["claude", "groq"] as const;
+const ENV_VAR: Record<string, string> = {
+  claude: "ANTHROPIC_API_KEY",
+  groq: "GROQ_API_KEY",
+};
+
+// Shown instead of the chat when no key could be resolved, rather than
+// printing a line and exiting -- which left you at a shell prompt having to
+// go find the flag name.
+//
+// Keys are captured through useKeyboard rather than an <input>, because
+// OpenTUI's input has no mask option and renders whatever it holds. An API
+// key should not be echoed into terminal scrollback, so the real value lives
+// in a signal here and only bullets are ever drawn. usePaste is wired up
+// too -- nobody types one of these by hand.
+export function ApiKeyPrompt(props: { provider: string; onSubmit: (provider: string, key: string) => void }) {
+  const [provider, setProvider] = createSignal(props.provider);
+  const [key, setKey] = createSignal("");
+  const [error, setError] = createSignal("");
+  watchTerminalSize();
+
+  // Switching provider re-checks that provider's env var -- someone with
+  // GROQ_API_KEY set who lands here because --provider defaulted to claude
+  // should be able to tab over and continue without pasting anything.
+  const envKey = () => process.env[ENV_VAR[provider()]] || "";
+
+  const submit = () => {
+    const typed = key().trim() || envKey();
+    if (!typed) {
+      setError(`No key entered. Paste one, or set ${ENV_VAR[provider()]} and restart.`);
+      return;
+    }
+    props.onSubmit(provider(), typed);
+  };
+
+  useKeyboard((e: any) => {
+    if (e.ctrl && e.name === "c") process.exit(0);
+    if (e.name === "tab") {
+      const i = PROVIDERS.indexOf(provider() as typeof PROVIDERS[number]);
+      setProvider(PROVIDERS[(i + 1) % PROVIDERS.length]);
+      setError("");
+      return;
+    }
+    if (e.name === "return" || e.name === "enter") { submit(); return; }
+    if (e.name === "backspace") { setKey((k) => k.slice(0, -1)); return; }
+    // Printable single characters only: this filters out arrows, function
+    // keys and control chords, whose sequences are multi-byte escapes.
+    if (!e.ctrl && !e.meta && e.sequence && e.sequence.length === 1 && e.sequence >= " ") {
+      setKey((k) => k + e.sequence);
+      setError("");
+    }
+  });
+
+  usePaste((event: any) => {
+    const text = new TextDecoder().decode(event.bytes).replace(/\s+/g, "");
+    if (text) { setKey((k) => k + text); setError(""); }
+  });
+
+  return (
+    <box flexDirection="column" width="100%" height="100%">
+      <box flexGrow={1} justifyContent="center" alignItems="center">
+        <box flexDirection="column" alignItems="center" flexShrink={0}>
+          <Wordmark />
+          <box marginTop={1} flexShrink={0}>
+            <text fg={COLOR_MUTED}>No API key found. Paste one to get started.</text>
+          </box>
+
+          <box flexDirection="row" marginTop={1} flexShrink={0}>
+            <For each={PROVIDERS}>
+              {(name) => (
+                <text
+                  fg={provider() === name ? COLOR_CONFIRM_FG : COLOR_MUTED}
+                  bg={provider() === name ? COLOR_ACCENT : COLOR_PANEL}
+                >
+                  {` ${name} `}
+                </text>
+              )}
+            </For>
+            <text fg={COLOR_MUTED}>{"  tab to switch"}</text>
+          </box>
+
+          <box
+            border
+            borderColor={COLOR_BORDER}
+            backgroundColor={COLOR_PANEL}
+            paddingLeft={1}
+            paddingRight={1}
+            marginTop={1}
+            width={KEY_FIELD_WIDTH}
+            flexShrink={0}
+            flexDirection="row"
+          >
+            <text fg={COLOR_ACCENT}>{"› "}</text>
+            <text fg={COLOR_TEXT}>
+              {key().length > 0
+                ? "•".repeat(Math.min(key().length, KEY_FIELD_WIDTH - 6))
+                : (envKey() ? `using ${ENV_VAR[provider()]}` : "")}
+            </text>
+          </box>
+
+          <box marginTop={1} flexShrink={0}>
+            <text fg={error() ? COLOR_ACCENT : COLOR_MUTED}>
+              {error() || `enter to continue · ctrl+c to quit`}
+            </text>
+          </box>
+          <box flexShrink={0}>
+            <text fg={COLOR_MUTED}>
+              {`skip this next time by setting ${ENV_VAR[provider()]}`}
+            </text>
+          </box>
+        </box>
+      </box>
     </box>
   );
 }
@@ -703,29 +835,47 @@ async function main() {
     process.exit(2);
   }
 
+  const makeSession = (provider: string, apiKey: string) =>
+    new ChatSession({
+      provider,
+      apiKey,
+      model: args.model,
+      defaultCwd: path.resolve(args.cwd),
+      enableValidation: !!args.enableValidation,
+      confirmFn: async () => false,
+    });
+
+  const bannerFor = (session: any) => {
+    let banner = `MrRobotBot chat -- provider: ${session.provider}, default folder: ${session.defaultCwd}`;
+    if (args.enableValidation) {
+      banner += "\n⚠ validation tools enabled -- every http_request/run_command still asks to confirm first.";
+    }
+    return banner + "\nAsk me to scan, list findings, or explain one.";
+  };
+
+  // A missing key is no longer fatal: the TUI opens on the key screen and
+  // swaps to the chat once one is entered. resolveApiKey still short-circuits
+  // it entirely when --api-key or the env var is already set.
   const apiKey = resolveApiKey(args.provider, args.apiKey);
-  if (!apiKey) {
-    const envVar = args.provider === "claude" ? "ANTHROPIC_API_KEY" : "GROQ_API_KEY";
-    process.stderr.write(`No API key for provider "${args.provider}" -- pass --api-key or set ${envVar}\n`);
-    process.exit(2);
+
+  function Root() {
+    const [session, setSession] = createSignal<any>(apiKey ? makeSession(args.provider, apiKey) : null);
+    return (
+      <Show
+        when={session()}
+        fallback={
+          <ApiKeyPrompt
+            provider={args.provider}
+            onSubmit={(provider, key) => setSession(makeSession(provider, key))}
+          />
+        }
+      >
+        <App session={session()} banner={bannerFor(session())} />
+      </Show>
+    );
   }
 
-  const session = new ChatSession({
-    provider: args.provider,
-    apiKey,
-    model: args.model,
-    defaultCwd: path.resolve(args.cwd),
-    enableValidation: !!args.enableValidation,
-    confirmFn: async () => false,
-  });
-
-  let banner = `MrRobotBot chat -- provider: ${args.provider}, default folder: ${session.defaultCwd}`;
-  if (args.enableValidation) {
-    banner += "\n⚠ validation tools enabled -- every http_request/run_command still asks to confirm first.";
-  }
-  banner += "\nAsk me to scan, list findings, or explain one.";
-
-  render(() => <App session={session} banner={banner} />);
+  render(() => <Root />);
 }
 
 // Only take over the terminal when this file is the entry point -- importing
