@@ -6,5 +6,7 @@ release/
 # Local launch scripts -- these hold API keys inline.
 .run_*.ps1
 
-# Design-reference screenshots; kept local, not part of the repo.
-*.png
+# Loose screenshots dropped in the project root while working; anything the
+# README actually uses lives in docs/ and is committed.
+/*.png
+/*.gif
