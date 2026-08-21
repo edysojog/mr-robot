@@ -117,6 +117,8 @@ Read this part before you use it. Every single call stops and shows you the exac
 
 The same scan engine with no UI. Prints a readable report to your terminal, and switches to JSON automatically when you redirect or pipe it, so scripts and CI get machine-readable output without needing a flag.
 
+![A scan running end to end and printing its report](docs/mrrobot-audit.gif)
+
 ```bash
 mrrobot audit .                              # readable report
 mrrobot audit . --semgrep-only               # fast, free, no API key
