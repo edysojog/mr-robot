@@ -35,6 +35,7 @@ function registerSettingsHandlers() {
       recentFolders: localSettings.getRecentFolders(),
       verificationEnabled: localSettings.getVerificationEnabled(),
       reconEnabled: localSettings.getReconEnabled(),
+      specialistsEnabled: localSettings.getSpecialistsEnabled(),
       setupComplete: localSettings.getSetupComplete(),
     };
   });
@@ -66,6 +67,11 @@ function registerSettingsHandlers() {
 
   ipcMain.handle(CHANNELS.SETTINGS_SET_RECON, async (event, enabled) => {
     localSettings.setReconEnabled(enabled);
+    return { ok: true };
+  });
+
+  ipcMain.handle(CHANNELS.SETTINGS_SET_SPECIALISTS, async (event, enabled) => {
+    localSettings.setSpecialistsEnabled(enabled);
     return { ok: true };
   });
 

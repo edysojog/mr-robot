@@ -136,6 +136,15 @@ input { width: 100%; }
 .badge { border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; font-size: 10px; color: var(--muted); margin-left: 6px; }
 .ok-badge { border-color: var(--accent-dim); color: var(--accent); }
 
+.chat-panel { border: 1px solid var(--border); border-radius: 4px; padding: 10px; background: rgba(255,255,255,0.02); }
+.chat-messages { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.chat-msg { font-size: 12px; line-height: 1.5; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); }
+.chat-msg.user { background: rgba(255,255,255,0.03); }
+.chat-msg.assistant { background: rgba(0,0,0,0.15); }
+.chat-msg-role { color: var(--accent-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-right: 6px; }
+.chat-input-row { display: flex; gap: 6px; }
+.chat-input-row .chat-input { flex: 1; }
+
 select {
   cursor: pointer;
   appearance: none;

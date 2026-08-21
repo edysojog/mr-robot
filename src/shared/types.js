@@ -17,6 +17,7 @@ const CHANNELS = {
   SETTINGS_SET_MODEL: 'settings:set-model',
   SETTINGS_SET_VERIFICATION: 'settings:set-verification',
   SETTINGS_SET_RECON: 'settings:set-recon',
+  SETTINGS_SET_SPECIALISTS: 'settings:set-specialists',
   SETTINGS_SET_OLLAMA_URL: 'settings:set-ollama-url',
   SETTINGS_SET_SETUP_COMPLETE: 'settings:set-setup-complete',
   SETTINGS_TEST_KEY: 'settings:test-key',
@@ -32,6 +33,7 @@ const CHANNELS = {
   HOOK_STATUS: 'hook:status',
   HOOK_INSTALL: 'hook:install',
   HOOK_UNINSTALL: 'hook:uninstall',
+  FINDING_CHAT: 'finding:chat',
 };
 
 // Finding shape (see MrRobotBot.md / plan for full rationale):

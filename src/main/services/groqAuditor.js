@@ -1,5 +1,6 @@
 const Groq = require('groq-sdk');
 const { RECON_SYSTEM_PROMPT, SCANNER_SYSTEM_PROMPT, VERIFIER_SYSTEM_PROMPT } = require('../constants/systemPrompt');
+const { SPECIALISTS } = require('../constants/specialistPrompts');
 const {
   AUDITOR_TEMPERATURE,
   REPORT_FINDINGS_SCHEMA,
@@ -14,6 +15,7 @@ const {
   buildReconUserContent,
   reconPriorityAsFindings,
   applyVerdicts,
+  mergeSpecialistCandidates,
   toFinding,
 } = require('./auditorShared');
 
@@ -59,11 +61,51 @@ const REPORT_RECON_TOOL = {
 // than Anthropic's tool_use format, so the request/response shape here
 // differs even though the surrounding batching logic is shared.
 class GroqAuditor {
-  constructor(apiKey, model, verify = true, recon = true) {
+  constructor(apiKey, model, verify = true, recon = true, specialists = false) {
     this.client = new Groq({ apiKey });
     this.model = model || DEFAULT_MODEL;
     this.verify = verify;
     this.recon = recon;
+    this.specialists = specialists;
+  }
+
+  // One scanner call per specialist, run in parallel over the same batch.
+  // Groq's free-tier rate limits already force small batches (see
+  // GROQ_TOKENS_PER_BATCH); running specialists concurrently multiplies
+  // requests-per-minute rather than tokens-per-request, so it's more
+  // likely to hit a 429 on a fast scan than the generalist path -- that's
+  // an accepted tradeoff for an opt-in mode, not silently worked around.
+  async runSpecialistScanners(batch, semgrepFindings, reconSummary, emit, batchLabel) {
+    const userContent = buildBatchUserContent(batch, semgrepFindings, reconSummary);
+
+    const results = await Promise.all(
+      SPECIALISTS.map(async (spec) => {
+        try {
+          const response = await this.client.chat.completions.create({
+            model: this.model,
+            max_tokens: GROQ_MAX_OUTPUT_TOKENS,
+            temperature: AUDITOR_TEMPERATURE,
+            tools: [REPORT_FINDINGS_TOOL],
+            tool_choice: { type: 'function', function: { name: 'report_findings' } },
+            messages: [
+              { role: 'system', content: spec.systemPrompt },
+              { role: 'user', content: userContent },
+            ],
+          });
+
+          const toolCall = response.choices[0].message.tool_calls?.[0];
+          const parsed = toolCall ? JSON.parse(toolCall.function.arguments) : { findings: [] };
+          return (parsed.findings || []).map((f) => ({ ...toFinding('claude', f), specialist: spec.key }));
+        } catch (err) {
+          emit(`Groq ${spec.label} specialist failed on ${batchLabel}: ${err.message}`);
+          return [];
+        }
+      })
+    );
+
+    const merged = mergeSpecialistCandidates(results);
+    emit(`Groq specialists finished ${batchLabel}: ${merged.length} candidate(s) from ${SPECIALISTS.length} specialists`);
+    return merged;
   }
 
   async runRecon(files, emit) {
@@ -116,29 +158,35 @@ class GroqAuditor {
     const allFindings = [];
 
     for (let i = 0; i < batches.length; i += 1) {
-      emit(`Groq scanner batch ${i + 1}/${batches.length}…`);
-      const userContent = buildBatchUserContent(batches[i], semgrepFindings, reconSummary);
-
+      const batchLabel = `batch ${i + 1}/${batches.length}`;
       let candidates = [];
-      try {
-        const response = await this.client.chat.completions.create({
-          model: this.model,
-          max_tokens: GROQ_MAX_OUTPUT_TOKENS,
-          temperature: AUDITOR_TEMPERATURE,
-          tools: [REPORT_FINDINGS_TOOL],
-          tool_choice: { type: 'function', function: { name: 'report_findings' } },
-          messages: [
-            { role: 'system', content: SCANNER_SYSTEM_PROMPT },
-            { role: 'user', content: userContent },
-          ],
-        });
 
-        const toolCall = response.choices[0].message.tool_calls?.[0];
-        const parsed = toolCall ? JSON.parse(toolCall.function.arguments) : { findings: [] };
-        candidates = (parsed.findings || []).map((f) => toFinding('claude', f));
-      } catch (err) {
-        emit(`Groq scanner batch ${i + 1} failed: ${err.message}`);
-        continue;
+      if (this.specialists) {
+        emit(`Groq specialist scanners ${batchLabel}…`);
+        candidates = await this.runSpecialistScanners(batches[i], semgrepFindings, reconSummary, emit, batchLabel);
+      } else {
+        emit(`Groq scanner ${batchLabel}…`);
+        const userContent = buildBatchUserContent(batches[i], semgrepFindings, reconSummary);
+        try {
+          const response = await this.client.chat.completions.create({
+            model: this.model,
+            max_tokens: GROQ_MAX_OUTPUT_TOKENS,
+            temperature: AUDITOR_TEMPERATURE,
+            tools: [REPORT_FINDINGS_TOOL],
+            tool_choice: { type: 'function', function: { name: 'report_findings' } },
+            messages: [
+              { role: 'system', content: SCANNER_SYSTEM_PROMPT },
+              { role: 'user', content: userContent },
+            ],
+          });
+
+          const toolCall = response.choices[0].message.tool_calls?.[0];
+          const parsed = toolCall ? JSON.parse(toolCall.function.arguments) : { findings: [] };
+          candidates = (parsed.findings || []).map((f) => toFinding('claude', f));
+        } catch (err) {
+          emit(`Groq scanner ${batchLabel} failed: ${err.message}`);
+          continue;
+        }
       }
 
       if (!this.verify || candidates.length === 0) {

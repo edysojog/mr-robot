@@ -1,0 +1,4 @@
+# Only affects scripts actually run with `bun` (chatOpentui.tsx) -- the
+# rest of this project (Electron main, the Node/Ink chat CLI) runs on
+# plain Node and never touches Bun or this file.
+preload = ["@opentui/solid/preload"]

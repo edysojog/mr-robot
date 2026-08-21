@@ -20,6 +20,7 @@ const CHANNELS = {
   SETTINGS_SET_MODEL: 'settings:set-model',
   SETTINGS_SET_VERIFICATION: 'settings:set-verification',
   SETTINGS_SET_RECON: 'settings:set-recon',
+  SETTINGS_SET_SPECIALISTS: 'settings:set-specialists',
   SETTINGS_SET_OLLAMA_URL: 'settings:set-ollama-url',
   SETTINGS_SET_SETUP_COMPLETE: 'settings:set-setup-complete',
   SETTINGS_TEST_KEY: 'settings:test-key',
@@ -35,6 +36,7 @@ const CHANNELS = {
   HOOK_STATUS: 'hook:status',
   HOOK_INSTALL: 'hook:install',
   HOOK_UNINSTALL: 'hook:uninstall',
+  FINDING_CHAT: 'finding:chat',
 };
 
 contextBridge.exposeInMainWorld('mrrobot', {
@@ -50,6 +52,7 @@ contextBridge.exposeInMainWorld('mrrobot', {
   setModel: (provider, model) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_MODEL, provider, model),
   setVerification: (enabled) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_VERIFICATION, enabled),
   setRecon: (enabled) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_RECON, enabled),
+  setSpecialists: (enabled) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_SPECIALISTS, enabled),
   setOllamaUrl: (url) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_OLLAMA_URL, url),
   setSetupComplete: (value) => ipcRenderer.invoke(CHANNELS.SETTINGS_SET_SETUP_COMPLETE, value),
   testKey: (provider) => ipcRenderer.invoke(CHANNELS.SETTINGS_TEST_KEY, provider),
@@ -90,4 +93,7 @@ contextBridge.exposeInMainWorld('mrrobot', {
   getHookStatus: (rootDir) => ipcRenderer.invoke(CHANNELS.HOOK_STATUS, rootDir),
   installHook: (rootDir) => ipcRenderer.invoke(CHANNELS.HOOK_INSTALL, rootDir),
   uninstallHook: (rootDir) => ipcRenderer.invoke(CHANNELS.HOOK_UNINSTALL, rootDir),
+
+  chatAboutFinding: (rootDir, finding, history, question) =>
+    ipcRenderer.invoke(CHANNELS.FINDING_CHAT, rootDir, finding, history, question),
 });

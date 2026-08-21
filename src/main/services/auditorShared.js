@@ -219,6 +219,48 @@ function applyVerdicts(candidateFindings, verdicts) {
     .filter(Boolean);
 }
 
+const SPECIALIST_SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+const SPECIALIST_LINE_PROXIMITY = 3;
+
+function normalizeSpecialistPath(file) {
+  return (file || '').trim().replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+}
+
+// Merges candidate-finding arrays from multiple specialist scanner calls run
+// in parallel over the same batch. Specialists are prompted to stay in their
+// own lane, but overlap still happens (e.g. an auth-bypass-via-injection bug
+// both the authz and injection specialists notice) -- same file + nearby
+// line is treated as one finding, keeping the higher severity and the
+// specialist tag(s) that flagged it, so the verifier sees one candidate
+// instead of near-duplicates.
+function mergeSpecialistCandidates(candidateArrays) {
+  const merged = [];
+
+  for (const candidates of candidateArrays) {
+    for (const candidate of candidates) {
+      const existing = merged.find(
+        (m) =>
+          normalizeSpecialistPath(m.file) === normalizeSpecialistPath(candidate.file) &&
+          Math.abs(m.line - candidate.line) <= SPECIALIST_LINE_PROXIMITY
+      );
+
+      if (!existing) {
+        merged.push({ ...candidate, specialists: [candidate.specialist].filter(Boolean) });
+        continue;
+      }
+
+      existing.specialists.push(candidate.specialist);
+      if (SPECIALIST_SEVERITY_RANK[candidate.severity] < SPECIALIST_SEVERITY_RANK[existing.severity]) {
+        existing.severity = candidate.severity;
+        existing.title = candidate.title;
+        existing.description = candidate.description;
+      }
+    }
+  }
+
+  return merged;
+}
+
 function toFinding(source, f) {
   return {
     id: makeId(source, [f.file, String(f.line), f.title]),
@@ -247,5 +289,6 @@ module.exports = {
   buildReconUserContent,
   reconPriorityAsFindings,
   applyVerdicts,
+  mergeSpecialistCandidates,
   toFinding,
 };

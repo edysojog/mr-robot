@@ -22,14 +22,15 @@ const { MockAuditor } = require('../services/mockAuditor');
 function buildAuditor(provider) {
   const verify = localSettings.getVerificationEnabled();
   const recon = localSettings.getReconEnabled();
+  const specialists = localSettings.getSpecialistsEnabled();
   const model = localSettings.getProviderModel(provider);
 
   if (provider === 'mock') return new MockAuditor(verify, recon);
-  if (provider === 'groq') return new GroqAuditor(secureStore.getApiKey('groq'), model, verify, recon);
+  if (provider === 'groq') return new GroqAuditor(secureStore.getApiKey('groq'), model, verify, recon, specialists);
   if (provider === 'gemini') return new GeminiAuditor(secureStore.getApiKey('gemini'), model, verify, recon);
   if (provider === 'openai') return new OpenAIAuditor(secureStore.getApiKey('openai'), model, verify, recon);
   if (provider === 'ollama') return new OllamaAuditor(localSettings.getOllamaBaseUrl(), model, verify, recon);
-  return new AnthropicAuditor(secureStore.getApiKey('anthropic'), model, verify, recon);
+  return new AnthropicAuditor(secureStore.getApiKey('anthropic'), model, verify, recon, specialists);
 }
 
 // Tracks in-flight scans so scan:cancel has something to act on.

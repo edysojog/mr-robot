@@ -2,3 +2,9 @@ node_modules/
 release/
 *.log
 .env
+
+# Local launch scripts -- these hold API keys inline.
+.run_*.ps1
+
+# Design-reference screenshots; kept local, not part of the repo.
+*.png

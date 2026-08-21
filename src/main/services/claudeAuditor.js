@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { RECON_SYSTEM_PROMPT, SCANNER_SYSTEM_PROMPT, VERIFIER_SYSTEM_PROMPT } = require('../constants/systemPrompt');
+const { SPECIALISTS } = require('../constants/specialistPrompts');
 const {
   AUDITOR_TEMPERATURE,
   REPORT_FINDINGS_SCHEMA,
@@ -14,6 +15,7 @@ const {
   buildReconUserContent,
   reconPriorityAsFindings,
   applyVerdicts,
+  mergeSpecialistCandidates,
   toFinding,
 } = require('./auditorShared');
 
@@ -38,11 +40,47 @@ const REPORT_RECON_TOOL = {
 };
 
 class AnthropicAuditor {
-  constructor(apiKey, model, verify = true, recon = true) {
+  constructor(apiKey, model, verify = true, recon = true, specialists = false) {
     this.client = new Anthropic({ apiKey });
     this.model = model || DEFAULT_MODEL;
     this.verify = verify;
     this.recon = recon;
+    this.specialists = specialists;
+  }
+
+  // One scanner call per specialist, run in parallel over the same batch,
+  // instead of a single generalist call. Any specialist call that fails
+  // fails soft (empty candidates from that specialist) rather than
+  // aborting the whole batch -- the others still contribute.
+  async runSpecialistScanners(batch, semgrepFindings, reconSummary, emit, batchLabel) {
+    const userContent = buildBatchUserContent(batch, semgrepFindings, reconSummary);
+
+    const results = await Promise.all(
+      SPECIALISTS.map(async (spec) => {
+        try {
+          const response = await this.client.messages.create({
+            model: this.model,
+            max_tokens: 4096,
+            temperature: AUDITOR_TEMPERATURE,
+            system: spec.systemPrompt,
+            tools: [REPORT_FINDINGS_TOOL],
+            tool_choice: { type: 'tool', name: 'report_findings' },
+            messages: [{ role: 'user', content: userContent }],
+          });
+
+          const toolUse = response.content.find((block) => block.type === 'tool_use');
+          const findings = (toolUse && toolUse.input && toolUse.input.findings) || [];
+          return findings.map((f) => ({ ...toFinding('claude', f), specialist: spec.key }));
+        } catch (err) {
+          emit(`Claude ${spec.label} specialist failed on ${batchLabel}: ${err.message}`);
+          return [];
+        }
+      })
+    );
+
+    const merged = mergeSpecialistCandidates(results);
+    emit(`Claude specialists finished ${batchLabel}: ${merged.length} candidate(s) from ${SPECIALISTS.length} specialists`);
+    return merged;
   }
 
   // Runs once per scan, before batching -- a lightweight map of the
@@ -96,27 +134,33 @@ class AnthropicAuditor {
     const allFindings = [];
 
     for (let i = 0; i < batches.length; i += 1) {
-      emit(`Claude scanner batch ${i + 1}/${batches.length}…`);
-      const userContent = buildBatchUserContent(batches[i], semgrepFindings, reconSummary);
-
+      const batchLabel = `batch ${i + 1}/${batches.length}`;
       let candidates = [];
-      try {
-        const response = await this.client.messages.create({
-          model: this.model,
-          max_tokens: 4096,
-          temperature: AUDITOR_TEMPERATURE,
-          system: SCANNER_SYSTEM_PROMPT,
-          tools: [REPORT_FINDINGS_TOOL],
-          tool_choice: { type: 'tool', name: 'report_findings' },
-          messages: [{ role: 'user', content: userContent }],
-        });
 
-        const toolUse = response.content.find((block) => block.type === 'tool_use');
-        const findings = (toolUse && toolUse.input && toolUse.input.findings) || [];
-        candidates = findings.map((f) => toFinding('claude', f));
-      } catch (err) {
-        emit(`Claude scanner batch ${i + 1} failed: ${err.message}`);
-        continue;
+      if (this.specialists) {
+        emit(`Claude specialist scanners ${batchLabel}…`);
+        candidates = await this.runSpecialistScanners(batches[i], semgrepFindings, reconSummary, emit, batchLabel);
+      } else {
+        emit(`Claude scanner ${batchLabel}…`);
+        const userContent = buildBatchUserContent(batches[i], semgrepFindings, reconSummary);
+        try {
+          const response = await this.client.messages.create({
+            model: this.model,
+            max_tokens: 4096,
+            temperature: AUDITOR_TEMPERATURE,
+            system: SCANNER_SYSTEM_PROMPT,
+            tools: [REPORT_FINDINGS_TOOL],
+            tool_choice: { type: 'tool', name: 'report_findings' },
+            messages: [{ role: 'user', content: userContent }],
+          });
+
+          const toolUse = response.content.find((block) => block.type === 'tool_use');
+          const findings = (toolUse && toolUse.input && toolUse.input.findings) || [];
+          candidates = findings.map((f) => toFinding('claude', f));
+        } catch (err) {
+          emit(`Claude scanner ${batchLabel} failed: ${err.message}`);
+          continue;
+        }
       }
 
       if (!this.verify || candidates.length === 0) {

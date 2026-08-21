@@ -102,6 +102,20 @@ function setReconEnabled(value) {
   writeAll(settings);
 }
 
+// Off by default -- unlike recon/verification (one extra call per scan/batch),
+// specialist mode multiplies the scanner call count by SPECIALISTS.length
+// per batch, a real cost jump that should be an explicit opt-in.
+function getSpecialistsEnabled() {
+  const settings = readAll();
+  return settings.specialistsEnabled === true;
+}
+
+function setSpecialistsEnabled(value) {
+  const settings = readAll();
+  settings.specialistsEnabled = !!value;
+  writeAll(settings);
+}
+
 // Drives first-run routing: false until the user has been through the
 // provider-setup screen once, at which point the app stops opening there
 // automatically and goes straight to the folder picker like normal.
@@ -155,6 +169,8 @@ module.exports = {
   setVerificationEnabled,
   getReconEnabled,
   setReconEnabled,
+  getSpecialistsEnabled,
+  setSpecialistsEnabled,
   getSetupComplete,
   setSetupComplete,
 };

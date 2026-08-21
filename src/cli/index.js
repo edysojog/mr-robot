@@ -43,6 +43,11 @@ Options:
   --deps                 Also run npm audit for dependency vulnerabilities (needs package.json)
   --no-verify            Skip the verifier pass -- report the AI scanner's raw candidates unchecked
   --no-recon             Skip the recon pass -- no upfront codebase-mapping call before the scanner
+  --specialists          Replace the single generalist scanner call per batch with four parallel
+                         specialist calls (authz, injection, secrets/crypto, data/logic exposure).
+                         Claude and Groq only; other providers ignore this flag for now. Roughly
+                         4x's the scanner call count/cost per batch in exchange for narrower,
+                         higher-recall prompts per vulnerability class.
   --provider <name>      mock | groq | claude | gemini | openai | ollama   (default: mock)
   --model <name>         Model override for the selected provider (ollama has no universal
                          default -- use whatever you've already run "ollama pull" for)
@@ -71,6 +76,7 @@ function parseArgs(argv) {
       case '--deps': args.deps = true; break;
       case '--no-verify': args.noVerify = true; break;
       case '--no-recon': args.noRecon = true; break;
+      case '--specialists': args.specialists = true; break;
       case '--provider': args.provider = rest.shift(); break;
       case '--model': args.model = rest.shift(); break;
       case '--api-key': args.apiKey = rest.shift(); break;
@@ -103,10 +109,10 @@ function resolveOllamaUrl(explicitUrl) {
   return explicitUrl || process.env.OLLAMA_BASE_URL || DEFAULT_OLLAMA_BASE_URL;
 }
 
-function buildAuditor(provider, apiKey, model, verify, recon, ollamaUrl) {
+function buildAuditor(provider, apiKey, model, verify, recon, ollamaUrl, specialists) {
   if (provider === 'mock') return new MockAuditor(verify, recon);
-  if (provider === 'groq') return new GroqAuditor(apiKey, model, verify, recon);
-  if (provider === 'claude') return new AnthropicAuditor(apiKey, model, verify, recon);
+  if (provider === 'groq') return new GroqAuditor(apiKey, model, verify, recon, specialists);
+  if (provider === 'claude') return new AnthropicAuditor(apiKey, model, verify, recon, specialists);
   if (provider === 'gemini') return new GeminiAuditor(apiKey, model, verify, recon);
   if (provider === 'openai') return new OpenAIAuditor(apiKey, model, verify, recon);
   if (provider === 'ollama') return new OllamaAuditor(ollamaUrl, model, verify, recon);
@@ -221,7 +227,7 @@ async function main() {
           ? await fileWalker.filesFromList(folderPath, changedRelPaths)
           : (await fileWalker.walk(folderPath)).files;
 
-        const auditor = buildAuditor(args.provider, apiKey, args.model, !args.noVerify, !args.noRecon, ollamaUrl);
+        const auditor = buildAuditor(args.provider, apiKey, args.model, !args.noVerify, !args.noRecon, ollamaUrl, !!args.specialists);
         const result = await auditor.review(auditFiles, staticFindings, log);
         aiFindings = result.findings;
         claudePartial = result.partial;

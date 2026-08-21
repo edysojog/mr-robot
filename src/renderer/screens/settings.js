@@ -51,6 +51,7 @@ const SettingsScreen = (() => {
     selectProviderCard(settings.provider);
     document.getElementById('verification-checkbox').checked = settings.verificationEnabled;
     document.getElementById('recon-checkbox').checked = settings.reconEnabled;
+    document.getElementById('specialists-checkbox').checked = settings.specialistsEnabled;
 
     const models = settings.providerModels || {};
     document.getElementById('claude-model-select').value = models.claude || 'claude-sonnet-5';
@@ -186,6 +187,10 @@ const SettingsScreen = (() => {
 
     document.getElementById('recon-checkbox').addEventListener('change', async (event) => {
       await IpcClient.setRecon(event.target.checked);
+    });
+
+    document.getElementById('specialists-checkbox').addEventListener('change', async (event) => {
+      await IpcClient.setSpecialists(event.target.checked);
     });
 
     wireKeySection('anthropic', {

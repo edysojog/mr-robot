@@ -15,6 +15,7 @@ const IpcClient = {
   setModel: (provider, model) => window.mrrobot.setModel(provider, model),
   setVerification: (enabled) => window.mrrobot.setVerification(enabled),
   setRecon: (enabled) => window.mrrobot.setRecon(enabled),
+  setSpecialists: (enabled) => window.mrrobot.setSpecialists(enabled),
   setOllamaUrl: (url) => window.mrrobot.setOllamaUrl(url),
   setSetupComplete: (value) => window.mrrobot.setSetupComplete(value),
   testKey: (provider) => window.mrrobot.testKey(provider),
@@ -36,4 +37,7 @@ const IpcClient = {
   getHookStatus: (rootDir) => window.mrrobot.getHookStatus(rootDir),
   installHook: (rootDir) => window.mrrobot.installHook(rootDir),
   uninstallHook: (rootDir) => window.mrrobot.uninstallHook(rootDir),
+
+  chatAboutFinding: (rootDir, finding, history, question) =>
+    window.mrrobot.chatAboutFinding(rootDir, finding, history, question),
 };

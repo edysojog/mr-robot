@@ -8,6 +8,9 @@ const ResultsScreen = (() => {
   let activeSources = new Set(SOURCES);
   let currentFolderPath = null;
   let currentSummary = null;
+  // Chat history per finding, keyed by finding.id -- kept in memory only,
+  // not persisted, and cleared whenever a new set of results is shown.
+  const chatHistories = new Map();
 
   function escapeHtml(str) {
     return String(str)
@@ -143,9 +146,18 @@ const ResultsScreen = (() => {
           ${finding.verifierReason ? `<div class="muted" style="margin-top:8px;font-size:12px;">verifier note: ${escapeHtml(finding.verifierReason)}</div>` : ''}
           <button class="open-file-btn" style="margin-top:10px;">open file</button>
           <button class="not-a-bug-btn" style="margin-top:10px;">mark as not a bug</button>
+          <button class="chat-toggle-btn" style="margin-top:10px;">ask about this</button>
           <div class="not-a-bug-form" style="display:none;margin-top:10px;">
             <input class="not-a-bug-reason" type="text" placeholder="reason (optional)" />
             <button class="not-a-bug-confirm" style="margin-top:6px;">confirm suppress</button>
+          </div>
+          <div class="chat-panel" style="display:none;margin-top:10px;">
+            <div class="chat-messages"></div>
+            <div class="chat-input-row" style="margin-top:6px;">
+              <input class="chat-input" type="text" placeholder="ask why this is exploitable, whether it's a false positive, etc." />
+              <button class="chat-send-btn">send</button>
+            </div>
+            <div class="chat-status muted" style="margin-top:4px;font-size:11px;"></div>
           </div>
         </div>
       `;
@@ -172,7 +184,79 @@ const ResultsScreen = (() => {
         renderList();
         refreshSuppressedPanel();
       });
+
+      wireChatPanel(el, finding);
+
       list.appendChild(el);
+    });
+  }
+
+  function renderChatMessages(container, history) {
+    container.innerHTML = history
+      .map(
+        (m) => `<div class="chat-msg ${m.role}">
+          <span class="chat-msg-role">${m.role === 'user' ? 'you' : 'mrrobot'}:</span>
+          <span class="chat-msg-text">${escapeHtml(m.content)}</span>
+        </div>`
+      )
+      .join('');
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function wireChatPanel(el, finding) {
+    const toggleBtn = el.querySelector('.chat-toggle-btn');
+    const panel = el.querySelector('.chat-panel');
+    const messagesEl = el.querySelector('.chat-messages');
+    const input = el.querySelector('.chat-input');
+    const sendBtn = el.querySelector('.chat-send-btn');
+    const status = el.querySelector('.chat-status');
+
+    if (!chatHistories.has(finding.id)) chatHistories.set(finding.id, []);
+
+    toggleBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const opening = panel.style.display === 'none';
+      panel.style.display = opening ? 'block' : 'none';
+      if (opening) {
+        renderChatMessages(messagesEl, chatHistories.get(finding.id));
+        input.focus();
+      }
+    });
+
+    const send = async () => {
+      const question = input.value.trim();
+      if (!question) return;
+
+      const history = chatHistories.get(finding.id);
+      history.push({ role: 'user', content: question });
+      renderChatMessages(messagesEl, history);
+      input.value = '';
+      input.disabled = true;
+      sendBtn.disabled = true;
+      status.textContent = 'asking…';
+      status.className = 'muted';
+
+      try {
+        const result = await IpcClient.chatAboutFinding(currentFolderPath, finding, history.slice(0, -1), question);
+        history.push({ role: 'assistant', content: result.answer });
+        renderChatMessages(messagesEl, history);
+        status.textContent = '';
+      } catch (err) {
+        history.pop(); // don't leave an unanswered question in the history sent next time
+        renderChatMessages(messagesEl, history);
+        status.textContent = 'failed: ' + err.message;
+        status.className = 'danger';
+      } finally {
+        input.disabled = false;
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    };
+
+    sendBtn.addEventListener('click', (event) => { event.stopPropagation(); send(); });
+    input.addEventListener('click', (event) => event.stopPropagation());
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.stopPropagation(); send(); }
     });
   }
 
@@ -246,6 +330,7 @@ const ResultsScreen = (() => {
     currentSummary = summary;
     activeSeverities = new Set(SEVERITY_ORDER);
     activeSources = new Set(SOURCES);
+    chatHistories.clear();
     document.getElementById('results-search').value = '';
     document.getElementById('results-sort').value = 'severity';
 

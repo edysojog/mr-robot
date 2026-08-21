@@ -275,6 +275,16 @@
       </div>
 
       <div class="panel">
+        <p class="prompt">specialist scanners</p>
+        <div class="row">
+          <label class="row" style="cursor:pointer;">
+            <input type="checkbox" id="specialists-checkbox" style="width:auto;" />
+            <span class="muted">replace the single generalist scanner call with four parallel specialists (auth/access control, injection, secrets/crypto, data exposure/business logic) -- higher recall per class, roughly 4x's scanner cost/time. Claude and Groq only.</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
         <p class="prompt" style="margin:0 0 8px;">local tools</p>
         <div class="row">
           <span class="status-dot pending" id="settings-semgrep-dot"></span>
