@@ -22,6 +22,7 @@ const { AnthropicAuditor } = require('../main/services/claudeAuditor');
 const { GroqAuditor } = require('../main/services/groqAuditor');
 const { GeminiAuditor } = require('../main/services/geminiAuditor');
 const { OpenAIAuditor } = require('../main/services/openaiAuditor');
+const { DeepseekAuditor } = require('../main/services/deepseekAuditor');
 const { OllamaAuditor, DEFAULT_BASE_URL: DEFAULT_OLLAMA_BASE_URL } = require('../main/services/ollamaAuditor');
 const { MockAuditor } = require('../main/services/mockAuditor');
 
@@ -48,12 +49,13 @@ Options:
                          Claude and Groq only; other providers ignore this flag for now. Roughly
                          4x's the scanner call count/cost per batch in exchange for narrower,
                          higher-recall prompts per vulnerability class.
-  --provider <name>      mock | groq | claude | gemini | openai | ollama   (default: mock)
+  --provider <name>      mock | groq | claude | gemini | openai | deepseek | ollama
+                         (default: mock)
   --model <name>         Model override for the selected provider (ollama has no universal
                          default -- use whatever you've already run "ollama pull" for)
-  --api-key <key>        API key for groq/claude/gemini/openai (or GROQ_API_KEY /
-                         ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY). Not needed for
-                         mock or ollama.
+  --api-key <key>        API key for groq/claude/gemini/openai/deepseek (or GROQ_API_KEY /
+                         ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY /
+                         DEEPSEEK_API_KEY). Not needed for mock or ollama.
   --ollama-url <url>     Ollama server URL (default: http://localhost:11434/v1, or OLLAMA_BASE_URL)
   --format <fmt>         json | markdown | html | sarif  (default: json)
   --output <path>        Write the report here instead of stdout
@@ -102,6 +104,7 @@ function resolveApiKey(provider, explicitKey) {
   if (provider === 'groq') return process.env.GROQ_API_KEY || null;
   if (provider === 'gemini') return process.env.GEMINI_API_KEY || null;
   if (provider === 'openai') return process.env.OPENAI_API_KEY || null;
+  if (provider === 'deepseek') return process.env.DEEPSEEK_API_KEY || null;
   return null;
 }
 
@@ -116,7 +119,8 @@ function buildAuditor(provider, apiKey, model, verify, recon, ollamaUrl, special
   if (provider === 'gemini') return new GeminiAuditor(apiKey, model, verify, recon);
   if (provider === 'openai') return new OpenAIAuditor(apiKey, model, verify, recon);
   if (provider === 'ollama') return new OllamaAuditor(ollamaUrl, model, verify, recon);
-  throw new Error(`Unknown provider: ${provider} (expected mock, groq, claude, gemini, openai, or ollama)`);
+  if (provider === 'deepseek') return new DeepseekAuditor(apiKey, model, verify, recon);
+  throw new Error(`Unknown provider: ${provider} (expected mock, groq, claude, gemini, openai, deepseek, or ollama)`);
 }
 
 function severityAtOrAbove(findings, threshold) {
@@ -143,7 +147,7 @@ async function main() {
   const apiKey = resolveApiKey(args.provider, args.apiKey);
   const ollamaUrl = resolveOllamaUrl(args.ollamaUrl);
   if (!args.semgrepOnly && !KEYLESS_PROVIDERS.includes(args.provider) && !apiKey) {
-    const envVar = { claude: 'ANTHROPIC_API_KEY', groq: 'GROQ_API_KEY', gemini: 'GEMINI_API_KEY', openai: 'OPENAI_API_KEY' }[args.provider];
+    const envVar = { claude: 'ANTHROPIC_API_KEY', groq: 'GROQ_API_KEY', gemini: 'GEMINI_API_KEY', openai: 'OPENAI_API_KEY', deepseek: 'DEEPSEEK_API_KEY' }[args.provider];
     log(`no API key for provider "${args.provider}" -- pass --api-key or set ${envVar || '(unknown provider)'}`);
     process.exit(2);
   }

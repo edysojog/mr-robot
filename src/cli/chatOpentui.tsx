@@ -26,9 +26,9 @@ Usage:
   mrrobot code [options]
 
 Options:
-  --provider <name>       claude | groq   (default: claude)
+  --provider <name>       claude | groq | deepseek   (default: claude)
   --model <name>          Model override for the selected provider
-  --api-key <key>         API key (or ANTHROPIC_API_KEY / GROQ_API_KEY env var)
+  --api-key <key>         API key (or ANTHROPIC_API_KEY / GROQ_API_KEY / DEEPSEEK_API_KEY)
   --cwd <path>            Default folder for scans when you don't name one
   --enable-validation     Adds http_request/run_command tools -- every use still asks to confirm first
   --help                  Show this help
@@ -427,11 +427,11 @@ function Splash(props: { banner: string }) {
   );
 }
 
-const PROVIDERS = ["claude", "groq"] as const;
-const ENV_VAR: Record<string, string> = {
-  claude: "ANTHROPIC_API_KEY",
-  groq: "GROQ_API_KEY",
-};
+// Sourced from chatCore rather than restated here: a provider added there
+// but missed here would be selectable via --provider yet absent from the key
+// screen's tab cycle.
+const PROVIDERS: string[] = coreModule.CHAT_PROVIDERS;
+const ENV_VAR: Record<string, string> = coreModule.CHAT_ENV_VAR;
 
 // Shown instead of the chat when no key could be resolved, rather than
 // printing a line and exiting -- which left you at a shell prompt having to
@@ -465,7 +465,7 @@ export function ApiKeyPrompt(props: { provider: string; onSubmit: (provider: str
   useKeyboard((e: any) => {
     if (e.ctrl && e.name === "c") process.exit(0);
     if (e.name === "tab") {
-      const i = PROVIDERS.indexOf(provider() as typeof PROVIDERS[number]);
+      const i = PROVIDERS.indexOf(provider());
       setProvider(PROVIDERS[(i + 1) % PROVIDERS.length]);
       setError("");
       return;
@@ -830,8 +830,8 @@ async function main() {
     process.exit(0);
   }
 
-  if (!["claude", "groq"].includes(args.provider)) {
-    process.stderr.write(`Unsupported --provider: ${args.provider} (expected claude or groq)\n`);
+  if (!PROVIDERS.includes(args.provider)) {
+    process.stderr.write(`Unsupported --provider: ${args.provider} (expected ${PROVIDERS.join(", ")})\n`);
     process.exit(2);
   }
 

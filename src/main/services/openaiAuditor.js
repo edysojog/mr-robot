@@ -51,17 +51,22 @@ const REPORT_RECON_TOOL = {
 // so this is close to identical to groqAuditor.js minus Groq's rate-limit
 // batch-size clamp -- OpenAI's paid tier has much higher token limits.
 class OpenAIAuditor {
+  // `label` is what progress lines call this pass. It is a field rather than
+  // a literal so subclasses pointing the same OpenAI-compatible client at a
+  // different endpoint (DeepSeek, and Ollama if it is ever folded in here)
+  // report their own name instead of claiming to be OpenAI.
   constructor(apiKey, model, verify = true, recon = true) {
     this.client = new OpenAI({ apiKey });
     this.model = model || DEFAULT_MODEL;
     this.verify = verify;
     this.recon = recon;
+    this.label = 'OpenAI';
   }
 
   async runRecon(files, emit) {
     if (!this.recon || files.length === 0) return { summary: null, priorityFiles: [] };
 
-    emit('OpenAI recon: mapping codebase attack surface…');
+    emit(`${this.label} recon: mapping codebase attack surface…`);
     try {
       const response = await this.client.chat.completions.create({
         model: this.model,
@@ -79,10 +84,10 @@ class OpenAIAuditor {
       const parsed = toolCall ? JSON.parse(toolCall.function.arguments) : {};
       const summary = parsed.summary || null;
       const priorityFiles = parsed.priorityFiles || [];
-      emit(`OpenAI recon finished: ${priorityFiles.length} priority file(s) identified`);
+      emit(`${this.label} recon finished: ${priorityFiles.length} priority file(s) identified`);
       return { summary, priorityFiles };
     } catch (err) {
-      emit(`OpenAI recon failed (${err.message}) -- continuing without it`);
+      emit(`${this.label} recon failed (${err.message}) -- continuing without it`);
       return { summary: null, priorityFiles: [] };
     }
   }
@@ -95,7 +100,7 @@ class OpenAIAuditor {
 
     const selected = prioritizeFiles(files, priorityContext);
     if (selected.length === 0) {
-      emit('no files eligible for the OpenAI pass');
+      emit(`no files eligible for the ${this.label} pass`);
       return { findings: [], batchCount: 0, partial: false };
     }
 
@@ -103,12 +108,12 @@ class OpenAIAuditor {
     const batches = batchByTokens(fileTexts);
     const partial = batches.length < estimateTotalBatches(fileTexts);
 
-    emit(`sending ${selected.length} file(s) to OpenAI in ${batches.length} batch(es)`);
+    emit(`sending ${selected.length} file(s) to ${this.label} in ${batches.length} batch(es)`);
 
     const allFindings = [];
 
     for (let i = 0; i < batches.length; i += 1) {
-      emit(`OpenAI scanner batch ${i + 1}/${batches.length}…`);
+      emit(`${this.label} scanner batch ${i + 1}/${batches.length}…`);
       const userContent = buildBatchUserContent(batches[i], semgrepFindings, reconSummary);
 
       let candidates = [];
@@ -129,7 +134,7 @@ class OpenAIAuditor {
         const parsed = toolCall ? JSON.parse(toolCall.function.arguments) : { findings: [] };
         candidates = (parsed.findings || []).map((f) => toFinding('claude', f));
       } catch (err) {
-        emit(`OpenAI scanner batch ${i + 1} failed: ${err.message}`);
+        emit(`${this.label} scanner batch ${i + 1} failed: ${err.message}`);
         continue;
       }
 
@@ -138,7 +143,7 @@ class OpenAIAuditor {
         continue;
       }
 
-      emit(`OpenAI verifier batch ${i + 1}/${batches.length}: checking ${candidates.length} candidate(s)…`);
+      emit(`${this.label} verifier batch ${i + 1}/${batches.length}: checking ${candidates.length} candidate(s)…`);
       try {
         const verifyContent = buildVerificationUserContent(batches[i], candidates);
         const response = await this.client.chat.completions.create({
@@ -156,15 +161,15 @@ class OpenAIAuditor {
         const toolCall = response.choices[0].message.tool_calls?.[0];
         const parsed = toolCall ? JSON.parse(toolCall.function.arguments) : { verdicts: [] };
         const confirmed = applyVerdicts(candidates, parsed.verdicts || []);
-        emit(`OpenAI verifier batch ${i + 1}/${batches.length}: ${confirmed.length}/${candidates.length} confirmed`);
+        emit(`${this.label} verifier batch ${i + 1}/${batches.length}: ${confirmed.length}/${candidates.length} confirmed`);
         allFindings.push(...confirmed);
       } catch (err) {
-        emit(`OpenAI verifier batch ${i + 1} failed (${err.message}) -- reporting unverified`);
+        emit(`${this.label} verifier batch ${i + 1} failed (${err.message}) -- reporting unverified`);
         allFindings.push(...candidates);
       }
     }
 
-    emit(`OpenAI pass finished: ${allFindings.length} finding(s)`);
+    emit(`${this.label} pass finished: ${allFindings.length} finding(s)`);
     return { findings: allFindings, batchCount: batches.length, partial };
   }
 }

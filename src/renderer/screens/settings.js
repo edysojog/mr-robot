@@ -1,5 +1,5 @@
 const SettingsScreen = (() => {
-  const PROVIDERS = ['mock', 'groq', 'claude', 'gemini', 'openai', 'ollama'];
+  const PROVIDERS = ['mock', 'groq', 'claude', 'gemini', 'openai', 'deepseek', 'ollama'];
   let onboarding = false;
 
   async function refreshToolStatus() {
@@ -93,7 +93,7 @@ const SettingsScreen = (() => {
 
     document.getElementById(ids.test).addEventListener('click', async () => {
       const statusEl = document.getElementById(ids.status);
-      const costNote = provider === 'anthropic' || provider === 'openai' || provider === 'gemini' ? ' (real, tiny paid request)' : ' (free tier)';
+      const costNote = ['anthropic', 'openai', 'gemini', 'deepseek'].includes(provider) ? ' (real, tiny paid request)' : ' (free tier)';
       statusEl.textContent = 'testing…' + costNote;
       statusEl.className = 'muted';
       try {
@@ -209,11 +209,16 @@ const SettingsScreen = (() => {
       input: 'openai-apikey-input', save: 'openai-save-key-btn', clear: 'openai-clear-key-btn',
       test: 'openai-test-key-btn', status: 'openai-key-status',
     });
+    wireKeySection('deepseek', {
+      input: 'deepseek-apikey-input', save: 'deepseek-save-key-btn', clear: 'deepseek-clear-key-btn',
+      test: 'deepseek-test-key-btn', status: 'deepseek-key-status',
+    });
 
     wireModelInput('claude', 'claude-model-select');
     wireModelInput('groq', 'groq-model-input');
     wireModelInput('gemini', 'gemini-model-input');
     wireModelInput('openai', 'openai-model-input');
+    wireModelInput('deepseek', 'deepseek-model-input');
     wireModelInput('ollama', 'ollama-model-input');
 
     wireOllama();

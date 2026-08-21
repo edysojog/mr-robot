@@ -3,6 +3,7 @@ const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 const Groq = require('groq-sdk');
 const OpenAI = require('openai');
+const { BASE_URL: DEEPSEEK_BASE_URL, DEFAULT_MODEL: DEEPSEEK_DEFAULT_MODEL } = require('./deepseekAuditor');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { FINDING_CHAT_SYSTEM_PROMPT } = require('../constants/systemPrompt');
 
@@ -85,13 +86,18 @@ async function chat({ provider, apiKey, model, ollamaBaseUrl, rootDir, finding, 
     return result.response.text();
   }
 
-  // groq / openai / ollama all speak the OpenAI-compatible chat.completions
-  // shape, so one branch covers all three -- only the client construction differs.
+  // groq / openai / deepseek / ollama all speak the OpenAI-compatible
+  // chat.completions shape, so one branch covers them -- only the client
+  // construction differs.
   let client;
   let defaultModel;
   if (provider === 'groq') {
     client = new Groq({ apiKey });
-    defaultModel = 'llama-3.3-70b-versatile';
+    // Was llama-3.3-70b-versatile, which now 404s -- Groq's catalog moved.
+    defaultModel = 'openai/gpt-oss-120b';
+  } else if (provider === 'deepseek') {
+    client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE_URL });
+    defaultModel = DEEPSEEK_DEFAULT_MODEL;
   } else if (provider === 'openai') {
     client = new OpenAI({ apiKey });
     defaultModel = 'gpt-4.1-mini';

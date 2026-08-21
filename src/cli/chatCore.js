@@ -20,6 +20,33 @@ const gitDiff = require('../main/services/gitDiff');
 const findingsMerger = require('../main/services/findingsMerger');
 const { AnthropicAuditor } = require('../main/services/claudeAuditor');
 const { GroqAuditor } = require('../main/services/groqAuditor');
+const OpenAI = require('openai');
+const {
+  DeepseekAuditor,
+  BASE_URL: DEEPSEEK_BASE_URL,
+  DEFAULT_MODEL: DEEPSEEK_DEFAULT_MODEL,
+} = require('../main/services/deepseekAuditor');
+
+// One table per concern, all keyed by provider, so adding a provider is a
+// row in each rather than another branch scattered through the file.
+const CHAT_PROVIDERS = ['claude', 'groq', 'deepseek'];
+const CHAT_AUDITORS = {
+  claude: AnthropicAuditor,
+  groq: GroqAuditor,
+  deepseek: DeepseekAuditor,
+};
+const CHAT_ENV_VAR = {
+  claude: 'ANTHROPIC_API_KEY',
+  groq: 'GROQ_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+};
+// Only the OpenAI-style providers need one here; Claude's default lives in
+// turnClaude. Groq's was `llama-3.3-70b-versatile`, which now 404s -- their
+// catalog moved -- so this is also the fix for that.
+const CHAT_DEFAULT_MODEL = {
+  groq: 'openai/gpt-oss-120b',
+  deepseek: DEEPSEEK_DEFAULT_MODEL,
+};
 const chatService = require('../main/services/chatService');
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
@@ -287,8 +314,14 @@ class ChatSession {
       this.client = new Anthropic({ apiKey });
     } else if (provider === 'groq') {
       this.client = new Groq({ apiKey });
+    } else if (provider === 'deepseek') {
+      // OpenAI-compatible endpoint, so the OpenAI-style function-calling turn
+      // loop (turnOpenAIStyle, shared with groq) applies unchanged.
+      this.client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE_URL });
     } else {
-      throw new Error(`Unsupported chat provider: ${provider} (expected claude or groq)`);
+      throw new Error(
+        `Unsupported chat provider: ${provider} (expected ${CHAT_PROVIDERS.join(', ')})`
+      );
     }
   }
 
@@ -310,7 +343,7 @@ class ChatSession {
     return { error: `Unknown tool: ${name}` };
   }
 
-  // Shared by turnClaude/turnGroq: prints the "about to run" trace, executes
+  // Shared by turnClaude/turnOpenAIStyle: prints the "about to run" trace, executes
   // the tool, prints the boxed/structured result, and returns the raw
   // result for the model's tool_result message (unaffected by any of the
   // display formatting above).
@@ -411,7 +444,13 @@ class ChatSession {
       ? await fileWalker.filesFromList(folderPath, changedRelPaths)
       : (await fileWalker.walk(folderPath)).files;
 
-    const AuditorClass = this.provider === 'groq' ? GroqAuditor : AnthropicAuditor;
+    // A lookup rather than a ternary on purpose: the old
+    // `provider === 'groq' ? GroqAuditor : AnthropicAuditor` silently handed
+    // any new provider's key to AnthropicAuditor, which does not fail at
+    // construction -- it fails on the first API call with an auth error
+    // naming the wrong provider. Adding a provider must break loudly here.
+    const AuditorClass = CHAT_AUDITORS[this.provider];
+    if (!AuditorClass) throw new Error(`No auditor wired for chat provider: ${this.provider}`);
     const auditor = new AuditorClass(this.apiKey, this.model, true, true, false);
     const aiResult = await auditor.review(auditFiles, findings, log);
 
@@ -485,7 +524,7 @@ class ChatSession {
 
   async turn(userText) {
     if (this.provider === 'claude') return this.turnClaude(userText);
-    return this.turnGroq(userText);
+    return this.turnOpenAIStyle(userText);
   }
 
   async turnClaude(userText) {
@@ -521,7 +560,9 @@ class ChatSession {
     }
   }
 
-  async turnGroq(userText) {
+  // Shared by every OpenAI-shaped provider (groq, deepseek) -- the Groq SDK
+  // and the OpenAI SDK expose the same chat.completions.create surface.
+  async turnOpenAIStyle(userText) {
     if (!this.messages) this.messages = [{ role: 'system', content: this.systemPrompt }];
     this.messages.push({ role: 'user', content: userText });
 
@@ -530,7 +571,7 @@ class ChatSession {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const response = await this.client.chat.completions.create({
-        model: this.model || 'llama-3.3-70b-versatile',
+        model: this.model || CHAT_DEFAULT_MODEL[this.provider],
         max_tokens: 1536,
         temperature: 0.4,
         tools,
@@ -557,9 +598,8 @@ class ChatSession {
 
 function resolveApiKey(provider, explicitKey) {
   if (explicitKey) return explicitKey;
-  if (provider === 'claude') return process.env.ANTHROPIC_API_KEY || null;
-  if (provider === 'groq') return process.env.GROQ_API_KEY || null;
-  return null;
+  const envVar = CHAT_ENV_VAR[provider];
+  return (envVar && process.env[envVar]) || null;
 }
 
 
@@ -586,5 +626,7 @@ module.exports = {
   renderToolResult,
   ChatSession,
   resolveApiKey,
+  CHAT_PROVIDERS,
+  CHAT_ENV_VAR,
   setWriteOut: (fn) => { writeOut = fn; },
 };

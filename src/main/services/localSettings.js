@@ -20,7 +20,7 @@ function writeAll(settings) {
   fs.writeFileSync(settingsFilePath(), JSON.stringify(settings, null, 2));
 }
 
-const PROVIDERS = ['mock', 'groq', 'claude', 'gemini', 'openai', 'ollama'];
+const PROVIDERS = ['mock', 'groq', 'claude', 'gemini', 'openai', 'deepseek', 'ollama'];
 const DEFAULT_PROVIDER = 'mock';
 // mock needs no key (canned findings) and ollama needs no key (local,
 // unauthenticated by default) -- every other provider does.

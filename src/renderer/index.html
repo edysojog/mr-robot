@@ -160,6 +160,7 @@
           <button class="provider-card" data-provider="claude">claude<br /><span class="muted">paid</span></button>
           <button class="provider-card" data-provider="gemini">gemini<br /><span class="muted">paid</span></button>
           <button class="provider-card" data-provider="openai">openai<br /><span class="muted">paid</span></button>
+          <button class="provider-card" data-provider="deepseek">deepseek<br /><span class="muted">paid, low cost</span></button>
           <button class="provider-card" data-provider="ollama">ollama<br /><span class="muted">local, free</span></button>
         </div>
         <p class="muted" style="margin:12px 0 0;font-size:12px;">
@@ -236,6 +237,22 @@
         </div>
         <div class="row" style="margin-top:8px;">
           <input id="openai-model-input" type="text" placeholder="model override (default: gpt-4.1-mini)" />
+        </div>
+      </div>
+
+      <div id="provider-config-deepseek" class="provider-config panel" style="display:none;">
+        <p class="prompt">deepseek</p>
+        <div class="row">
+          <input id="deepseek-apikey-input" type="password" placeholder="sk-..." />
+        </div>
+        <div class="row">
+          <button id="deepseek-save-key-btn">Save</button>
+          <button id="deepseek-clear-key-btn">Clear</button>
+          <button id="deepseek-test-key-btn">Test Key</button>
+          <span id="deepseek-key-status" class="muted"></span>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input id="deepseek-model-input" type="text" placeholder="model override (default: deepseek-v4-flash)" />
         </div>
       </div>
 

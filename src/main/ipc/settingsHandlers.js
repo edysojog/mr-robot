@@ -13,10 +13,11 @@ const { DEFAULT_MODEL: DEFAULT_GROQ_MODEL } = require('../services/groqAuditor')
 const { DEFAULT_MODEL: DEFAULT_GEMINI_MODEL } = require('../services/geminiAuditor');
 const { DEFAULT_MODEL: DEFAULT_OPENAI_MODEL } = require('../services/openaiAuditor');
 const { DEFAULT_MODEL: DEFAULT_OLLAMA_MODEL } = require('../services/ollamaAuditor');
+const { DEFAULT_MODEL: DEFAULT_DEEPSEEK_MODEL, BASE_URL: DEEPSEEK_BASE_URL } = require('../services/deepseekAuditor');
 
 // Providers a stored API key applies to -- mock and ollama are excluded
 // (localSettings.KEYLESS_PROVIDERS), so there's nothing to report for them.
-const KEYED_PROVIDERS = ['anthropic', 'groq', 'gemini', 'openai'];
+const KEYED_PROVIDERS = ['anthropic', 'groq', 'gemini', 'openai', 'deepseek'];
 
 function registerSettingsHandlers() {
   ipcMain.handle(CHANNELS.SETTINGS_GET, async () => {
@@ -106,6 +107,13 @@ function registerSettingsHandlers() {
       const client = new OpenAI({ apiKey });
       await client.chat.completions.create({
         model: localSettings.getProviderModel('openai') || DEFAULT_OPENAI_MODEL,
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+    } else if (provider === 'deepseek') {
+      const client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE_URL });
+      await client.chat.completions.create({
+        model: localSettings.getProviderModel('deepseek') || DEFAULT_DEEPSEEK_MODEL,
         max_tokens: 1,
         messages: [{ role: 'user', content: 'hi' }],
       });

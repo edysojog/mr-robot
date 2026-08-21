@@ -17,6 +17,7 @@ const { GroqAuditor } = require('../services/groqAuditor');
 const { GeminiAuditor } = require('../services/geminiAuditor');
 const { OpenAIAuditor } = require('../services/openaiAuditor');
 const { OllamaAuditor } = require('../services/ollamaAuditor');
+const { DeepseekAuditor } = require('../services/deepseekAuditor');
 const { MockAuditor } = require('../services/mockAuditor');
 
 function buildAuditor(provider) {
@@ -30,7 +31,13 @@ function buildAuditor(provider) {
   if (provider === 'gemini') return new GeminiAuditor(secureStore.getApiKey('gemini'), model, verify, recon);
   if (provider === 'openai') return new OpenAIAuditor(secureStore.getApiKey('openai'), model, verify, recon);
   if (provider === 'ollama') return new OllamaAuditor(localSettings.getOllamaBaseUrl(), model, verify, recon);
-  return new AnthropicAuditor(secureStore.getApiKey('anthropic'), model, verify, recon, specialists);
+  if (provider === 'deepseek') return new DeepseekAuditor(secureStore.getApiKey('deepseek'), model, verify, recon);
+  if (provider === 'claude') return new AnthropicAuditor(secureStore.getApiKey('anthropic'), model, verify, recon, specialists);
+  // Explicit rather than a fallthrough to Anthropic: an unlisted provider used
+  // to be handed Anthropic's client with its own key, which does not fail at
+  // construction -- it fails on the first call with an auth error naming the
+  // wrong provider.
+  throw new Error(`Unknown provider: ${provider}`);
 }
 
 // Tracks in-flight scans so scan:cancel has something to act on.
