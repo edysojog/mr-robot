@@ -1,10 +1,10 @@
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { safeSpawn } = require('./safeSpawn');
 
 function runGit(rootDir, args) {
   return new Promise((resolve) => {
-    const child = spawn('git', args, { cwd: rootDir, shell: true });
+    const child = safeSpawn('git', args, { cwd: rootDir });
     let stdout = '';
     child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
     child.on('error', () => resolve({ ok: false, stdout: '' }));

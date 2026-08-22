@@ -19,7 +19,10 @@ const {
   toFinding,
 } = require('./auditorShared');
 
-const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+// Kept in sync with chatCore's CHAT_DEFAULT_MODEL -- `llama-3.3-70b-versatile`
+// started 404ing when Groq's catalog moved. Best effort rather than guaranteed
+// current, which is why every provider takes a free-text model override.
+const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 
 // Groq's free tier caps requests at 12k tokens/minute -- auditorShared's
 // default 50k-token batch target (sized for Claude's much higher limits)
@@ -95,7 +98,7 @@ class GroqAuditor {
 
           const toolCall = response.choices[0].message.tool_calls?.[0];
           const parsed = toolCall ? JSON.parse(toolCall.function.arguments) : { findings: [] };
-          return (parsed.findings || []).map((f) => ({ ...toFinding('claude', f), specialist: spec.key }));
+          return (parsed.findings || []).map((f) => ({ ...toFinding('groq', f), specialist: spec.key }));
         } catch (err) {
           emit(`Groq ${spec.label} specialist failed on ${batchLabel}: ${err.message}`);
           return [];
@@ -182,7 +185,7 @@ class GroqAuditor {
 
           const toolCall = response.choices[0].message.tool_calls?.[0];
           const parsed = toolCall ? JSON.parse(toolCall.function.arguments) : { findings: [] };
-          candidates = (parsed.findings || []).map((f) => toFinding('claude', f));
+          candidates = (parsed.findings || []).map((f) => toFinding('groq', f));
         } catch (err) {
           emit(`Groq scanner ${batchLabel} failed: ${err.message}`);
           continue;

@@ -15,6 +15,7 @@
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
+const { safeSpawnSync } = require('../main/services/safeSpawn');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const IS_WINDOWS = process.platform === 'win32';
@@ -52,7 +53,7 @@ function findBun() {
     if (fs.existsSync(candidate)) return candidate;
   }
   // Fall back to whatever PATH resolves, but only if it actually runs.
-  const probe = spawnSync('bun', ['--version'], { shell: true, stdio: 'ignore' });
+  const probe = safeSpawnSync('bun', ['--version'], { stdio: 'ignore' });
   return probe.status === 0 ? 'bun' : null;
 }
 

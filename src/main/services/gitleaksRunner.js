@@ -2,7 +2,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { safeSpawn } = require('./safeSpawn');
 const { EXCLUDED_DIR_NAMES } = require('../constants/excludes');
 
 const OVERALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -28,7 +28,7 @@ function buildAllowlistConfig() {
 
 function checkInstalled() {
   return new Promise((resolve) => {
-    const child = spawn('gitleaks', ['version'], { shell: true });
+    const child = safeSpawn('gitleaks', ['version']);
     let stdout = '';
 
     child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
@@ -89,7 +89,7 @@ function runScan(rootDir, onProgress) {
     ];
 
     emit(`spawning gitleaks against ${rootDir}`);
-    const child = spawn('gitleaks', args, { shell: true });
+    const child = safeSpawn('gitleaks', args);
 
     let stderr = '';
     let settled = false;

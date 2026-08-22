@@ -41,7 +41,8 @@ const CHANNELS = {
 // Finding shape (see MrRobotBot.md / plan for full rationale):
 // {
 //   id: string,
-//   source: 'semgrep' | 'gitleaks' | 'npm-audit' | 'claude' | 'both',
+//   source: 'semgrep' | 'gitleaks' | 'npm-audit' | 'osv' | 'both'
+//          | provider id ('claude' | 'groq' | 'deepseek' | 'gemini' | 'openai' | 'ollama' | 'mock'),
 //   severity: 'critical' | 'high' | 'medium' | 'low' | 'info',
 //   title: string,
 //   description: string,

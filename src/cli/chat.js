@@ -13,6 +13,8 @@ const {
   ChatSession,
   resolveApiKey,
   setWriteOut,
+  CHAT_PROVIDERS,
+  CHAT_ENV_VAR,
 } = require('./chatCore');
 
 const HELP = `
@@ -22,9 +24,9 @@ Usage:
   mrrobot code [options]
 
 Options:
-  --provider <name>       claude | groq   (default: claude)
+  --provider <name>       ${CHAT_PROVIDERS.join(' | ')}   (default: claude)
   --model <name>          Model override for the selected provider
-  --api-key <key>         API key (or ANTHROPIC_API_KEY / GROQ_API_KEY env var)
+  --api-key <key>         API key (or the provider's env var, see below)
   --cwd <path>            Default folder for scans when you don't name one (default: current directory)
   --enable-validation     Give the agent two extra tools: http_request (send one HTTP request against a
                           target you're running) and run_command (run one shell command on THIS machine)
@@ -33,6 +35,8 @@ Options:
                           confirm the exact request/command before it runs -- this flag only controls
                           whether the agent has the tools at all, not whether it needs your permission.
   --help                  Show this help
+
+API key environment variables: ${CHAT_PROVIDERS.map((p) => CHAT_ENV_VAR[p]).join(', ')}.
 
 Once running, just talk to it in plain English:
   > scan this project
@@ -189,14 +193,14 @@ async function main() {
     process.exit(0);
   }
 
-  if (!['claude', 'groq'].includes(args.provider)) {
-    process.stderr.write(`Unsupported --provider: ${args.provider} (expected claude or groq)\n`);
+  if (!CHAT_PROVIDERS.includes(args.provider)) {
+    process.stderr.write(`Unsupported --provider: ${args.provider} (expected ${CHAT_PROVIDERS.join(' or ')})\n`);
     process.exit(2);
   }
 
   const apiKey = resolveApiKey(args.provider, args.apiKey);
   if (!apiKey) {
-    const envVar = args.provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'GROQ_API_KEY';
+    const envVar = CHAT_ENV_VAR[args.provider];
     process.stderr.write(`No API key for provider "${args.provider}" -- pass --api-key or set ${envVar}\n`);
     process.exit(2);
   }

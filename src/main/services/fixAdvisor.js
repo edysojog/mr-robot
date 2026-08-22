@@ -4,6 +4,17 @@ const Anthropic = require('@anthropic-ai/sdk');
 const Groq = require('groq-sdk');
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+// Default models are imported rather than restated so they track the
+// auditor modules -- a stale default used to live here for Groq after its
+// catalog moved, purely because this file kept its own copy.
+const { DEFAULT_MODEL: CLAUDE_DEFAULT_MODEL } = require('./claudeAuditor');
+const { DEFAULT_MODEL: GROQ_DEFAULT_MODEL } = require('./groqAuditor');
+const { DEFAULT_MODEL: GEMINI_DEFAULT_MODEL } = require('./geminiAuditor');
+const { DEFAULT_MODEL: OPENAI_DEFAULT_MODEL } = require('./openaiAuditor');
+const {
+  DEFAULT_MODEL: DEEPSEEK_DEFAULT_MODEL,
+  BASE_URL: DEEPSEEK_BASE_URL,
+} = require('./deepseekAuditor');
 
 // Lines of surrounding source shown on each side of the finding, so the
 // advisor sees enough context to write a real fix without sending the
@@ -61,7 +72,7 @@ async function suggestFix({ provider, apiKey, model, ollamaBaseUrl, rootDir, fin
   if (provider === 'claude') {
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
-      model: model || 'claude-sonnet-5',
+      model: model || CLAUDE_DEFAULT_MODEL,
       max_tokens: 1024,
       temperature: FIX_TEMPERATURE,
       system: FIX_ADVISOR_SYSTEM_PROMPT,
@@ -74,7 +85,7 @@ async function suggestFix({ provider, apiKey, model, ollamaBaseUrl, rootDir, fin
   if (provider === 'groq') {
     const client = new Groq({ apiKey });
     const response = await client.chat.completions.create({
-      model: model || 'llama-3.3-70b-versatile',
+      model: model || GROQ_DEFAULT_MODEL,
       temperature: FIX_TEMPERATURE,
       max_tokens: 1024,
       messages: [
@@ -88,7 +99,7 @@ async function suggestFix({ provider, apiKey, model, ollamaBaseUrl, rootDir, fin
   if (provider === 'gemini') {
     const client = new GoogleGenerativeAI(apiKey);
     const genModel = client.getGenerativeModel({
-      model: model || 'gemini-2.5-flash',
+      model: model || GEMINI_DEFAULT_MODEL,
       systemInstruction: FIX_ADVISOR_SYSTEM_PROMPT,
     });
     const result = await genModel.generateContent({
@@ -101,7 +112,23 @@ async function suggestFix({ provider, apiKey, model, ollamaBaseUrl, rootDir, fin
   if (provider === 'openai') {
     const client = new OpenAI({ apiKey });
     const response = await client.chat.completions.create({
-      model: model || 'gpt-4.1-mini',
+      model: model || OPENAI_DEFAULT_MODEL,
+      temperature: FIX_TEMPERATURE,
+      max_tokens: 1024,
+      messages: [
+        { role: 'system', content: FIX_ADVISOR_SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
+      ],
+    });
+    return { fix: response.choices[0].message.content };
+  }
+
+  // OpenAI-compatible endpoint, so the same chat-completions shape as the
+  // openai branch above pointed at DeepSeek's base URL.
+  if (provider === 'deepseek') {
+    const client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE_URL });
+    const response = await client.chat.completions.create({
+      model: model || DEEPSEEK_DEFAULT_MODEL,
       temperature: FIX_TEMPERATURE,
       max_tokens: 1024,
       messages: [

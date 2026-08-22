@@ -61,6 +61,10 @@ class OpenAIAuditor {
     this.verify = verify;
     this.recon = recon;
     this.label = 'OpenAI';
+    // The `source` stamped on findings from this class. A field like `label`
+    // so subclasses (DeepSeek) report their own provider id instead of
+    // mislabeling their findings as openai's.
+    this.sourceId = 'openai';
   }
 
   async runRecon(files, emit) {
@@ -132,7 +136,7 @@ class OpenAIAuditor {
 
         const toolCall = response.choices[0].message.tool_calls?.[0];
         const parsed = toolCall ? JSON.parse(toolCall.function.arguments) : { findings: [] };
-        candidates = (parsed.findings || []).map((f) => toFinding('claude', f));
+        candidates = (parsed.findings || []).map((f) => toFinding(this.sourceId, f));
       } catch (err) {
         emit(`${this.label} scanner batch ${i + 1} failed: ${err.message}`);
         continue;

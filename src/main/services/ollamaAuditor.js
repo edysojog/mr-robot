@@ -134,7 +134,7 @@ class OllamaAuditor {
 
         const toolCall = response.choices[0].message.tool_calls?.[0];
         const parsed = toolCall ? JSON.parse(toolCall.function.arguments) : { findings: [] };
-        candidates = (parsed.findings || []).map((f) => toFinding('claude', f));
+        candidates = (parsed.findings || []).map((f) => toFinding('ollama', f));
       } catch (err) {
         emit(`Ollama scanner batch ${i + 1} failed: ${err.message}`);
         continue;

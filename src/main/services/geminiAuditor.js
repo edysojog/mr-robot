@@ -105,7 +105,7 @@ class GeminiAuditor {
           4096
         );
         const findings = (args && args.findings) || [];
-        candidates = findings.map((f) => toFinding('claude', f));
+        candidates = findings.map((f) => toFinding('gemini', f));
       } catch (err) {
         emit(`Gemini scanner batch ${i + 1} failed: ${err.message}`);
         continue;

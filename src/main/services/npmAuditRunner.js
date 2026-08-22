@@ -1,13 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { safeSpawn } = require('./safeSpawn');
 
 const OVERALL_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
 
 function checkInstalled() {
   return new Promise((resolve) => {
-    const child = spawn('npm', ['--version'], { shell: true });
+    const child = safeSpawn('npm', ['--version']);
     let stdout = '';
 
     child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
@@ -77,7 +77,7 @@ function runScan(rootDir, onProgress) {
     }
 
     emit(`spawning npm audit in ${rootDir}`);
-    const child = spawn('npm', ['audit', '--json'], { cwd: rootDir, shell: true });
+    const child = safeSpawn('npm', ['audit', '--json'], { cwd: rootDir });
 
     let stdout = '';
     let stderr = '';

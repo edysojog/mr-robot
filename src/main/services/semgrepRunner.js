@@ -1,6 +1,6 @@
 const path = require('path');
-const { spawn } = require('child_process');
 const crypto = require('crypto');
+const { safeSpawn } = require('./safeSpawn');
 
 const RULE_PACKS = ['p/owasp-top-ten', 'p/secrets', 'p/security-audit'];
 
@@ -22,7 +22,7 @@ const PER_RULE_TIMEOUT_SEC = 30;
 // Runs a quick `semgrep --version` to detect availability + report the version.
 function checkInstalled() {
   return new Promise((resolve) => {
-    const child = spawn('semgrep', ['--version'], { shell: true });
+    const child = safeSpawn('semgrep', ['--version']);
     let stdout = '';
 
     child.stdout.on('data', (chunk) => {
@@ -104,7 +104,7 @@ function runScan(rootDir, onProgress, targetFiles) {
 
     const targetDesc = targetFiles ? `${targetFiles.length} changed file(s)` : rootDir;
     emit(`spawning semgrep with rule packs: ${RULE_PACKS.join(', ')} (target: ${targetDesc})`);
-    const child = spawn('semgrep', args, { shell: true });
+    const child = safeSpawn('semgrep', args);
 
     let stdout = '';
     let stderr = '';

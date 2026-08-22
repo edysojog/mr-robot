@@ -228,6 +228,7 @@ const FolderSelectScreen = (() => {
       claude: { storeKey: 'anthropic', label: 'Anthropic' },
       gemini: { storeKey: 'gemini', label: 'Gemini' },
       openai: { storeKey: 'openai', label: 'OpenAI' },
+      deepseek: { storeKey: 'deepseek', label: 'DeepSeek' },
     };
 
     let keyReady;

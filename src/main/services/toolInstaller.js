@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const { safeSpawn } = require('./safeSpawn');
 
 const ATTEMPT_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes per package-manager attempt
 
@@ -8,7 +8,7 @@ const ATTEMPT_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes per package-manager attem
 // up front, so callers just move on to the next candidate either way.
 function run(cmd, args) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { shell: true });
+    const child = safeSpawn(cmd, args);
     let stdout = '';
     let stderr = '';
     let settled = false;

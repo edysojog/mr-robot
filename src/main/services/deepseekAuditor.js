@@ -27,6 +27,7 @@ class DeepseekAuditor extends OpenAIAuditor {
     this.client = new OpenAI({ apiKey, baseURL: BASE_URL });
     this.model = model || DEFAULT_MODEL;
     this.label = 'DeepSeek';
+    this.sourceId = 'deepseek';
   }
 }
 

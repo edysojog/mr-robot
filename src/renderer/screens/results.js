@@ -1,7 +1,15 @@
 const ResultsScreen = (() => {
   const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
-  const SOURCES = ['both', 'semgrep', 'gitleaks', 'npm-audit', 'osv', 'claude'];
+  // Static sources are fixed; AI findings carry whichever provider ran the
+  // pass, so the filter list is extended at show() time from what actually
+  // arrived rather than hardcoded per provider.
+  const SOURCES = ['both', 'semgrep', 'gitleaks', 'npm-audit', 'osv'];
   const CONFIDENCE_ORDER = { high: 0, medium: 1, low: 2, undefined: 3 };
+
+  function sourceListFor(findings) {
+    const extras = [...new Set(findings.map((f) => f.source).filter((s) => !SOURCES.includes(s)))];
+    return [...SOURCES, ...extras];
+  }
 
   let allFindings = [];
   let activeSeverities = new Set(SEVERITY_ORDER);
@@ -399,15 +407,16 @@ const ResultsScreen = (() => {
     currentFolderPath = summary.folderPath;
     currentSummary = summary;
     activeSeverities = new Set(SEVERITY_ORDER);
-    activeSources = new Set(SOURCES);
     groupBy = 'severity';
     document.getElementById('results-search').value = '';
     document.getElementById('results-groupby').value = 'severity';
     document.getElementById('results-sort').value = 'severity';
 
     renderSummary(findings, summary);
+    const sources = sourceListFor(findings);
+    activeSources = new Set(sources);
     buildFilterPills('results-severity-filters', SEVERITY_ORDER, activeSeverities, '');
-    buildFilterPills('results-source-filters', SOURCES, activeSources, 'source: ');
+    buildFilterPills('results-source-filters', sources, activeSources, 'source: ');
     renderList();
     document.getElementById('suppressed-list').style.display = 'none';
     document.getElementById('history-list').style.display = 'none';

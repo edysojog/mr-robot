@@ -35,8 +35,8 @@ class MockAuditor {
     const semgrepHit = semgrepFindings[0];
     if (semgrepHit) {
       candidates.push({
-        id: makeId(['mock-claude', semgrepHit.file, String(semgrepHit.line), 'confirm']),
-        source: 'claude',
+        id: makeId(['mock', semgrepHit.file, String(semgrepHit.line), 'confirm']),
+        source: 'mock',
         severity: semgrepHit.severity,
         title: `${semgrepHit.title} (mock confirmation)`,
         description: `[MOCK] Corroborates the Semgrep finding at ${semgrepHit.file}:${semgrepHit.line} -- this is canned output for testing the merge path, not a real model response.`,
@@ -50,8 +50,8 @@ class MockAuditor {
     if (files.length > 0) {
       const first = files[0];
       candidates.push({
-        id: makeId(['mock-claude', first.relativePath, '1', 'architectural']),
-        source: 'claude',
+        id: makeId(['mock', first.relativePath, '1', 'architectural']),
+        source: 'mock',
         severity: 'medium',
         title: 'Mock architectural finding',
         description: '[MOCK] Canned example of a logic-level finding a static scanner would miss -- for testing only, not a real analysis result.',
