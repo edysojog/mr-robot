@@ -19,7 +19,7 @@ const npmAuditRunner = require('../main/services/npmAuditRunner');
 const gitDiff = require('../main/services/gitDiff');
 const findingsMerger = require('../main/services/findingsMerger');
 const { AnthropicAuditor } = require('../main/services/claudeAuditor');
-const { GroqAuditor } = require('../main/services/groqAuditor');
+const { GroqAuditor, DEFAULT_MODEL: GROQ_DEFAULT_MODEL } = require('../main/services/groqAuditor');
 const OpenAI = require('openai');
 const {
   DeepseekAuditor,
@@ -41,10 +41,12 @@ const CHAT_ENV_VAR = {
   deepseek: 'DEEPSEEK_API_KEY',
 };
 // Only the OpenAI-style providers need one here; Claude's default lives in
-// turnClaude. Groq's was `llama-3.3-70b-versatile`, which now 404s -- their
-// catalog moved -- so this is also the fix for that.
+// turnClaude -- both read the same constant below, so a catalog change only
+// has to be fixed in one place.
+const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
 const CHAT_DEFAULT_MODEL = {
-  groq: 'openai/gpt-oss-120b',
+  claude: CLAUDE_DEFAULT_MODEL,
+  groq: GROQ_DEFAULT_MODEL,
   deepseek: DEEPSEEK_DEFAULT_MODEL,
 };
 const chatService = require('../main/services/chatService');
@@ -76,6 +78,17 @@ const severityColor = (sev) => (SEVERITY_COLOR[sev] || dim)(sev.toUpperCase());
 // draw gutter markers need this; ones that don't can ignore both, which
 // is why they're extra parameters rather than baked into the string.
 let writeOut = (s) => process.stdout.write(s);
+
+// Live assistant-text hook, separate from writeOut on purpose: writeOut
+// carries whole, settled lines (tool traces, results, logs) and front-ends
+// print exactly what they receive -- streaming every delta through it would
+// have the Ink front-end (chat.js) render one log line per token chunk.
+// Only a front-end that opts in here sees partial text; with no handler
+// registered (chat.js, tests, default) this is a silent no-op and both
+// front-ends still get the complete reply as turn()'s return value, so
+// behavior for non-streaming consumers is unchanged.
+let assistantStream = null;
+const emitAssistantDelta = (chunk) => { if (assistantStream && chunk) assistantStream(chunk); };
 
 const check = (s) => green('✓ ') + s;
 const cross = (s) => red('✗ ') + s;
@@ -522,6 +535,22 @@ class ChatSession {
     return this.enableValidation ? AGENT_SYSTEM_PROMPT_BASE + AGENT_SYSTEM_PROMPT_VALIDATION_ADDENDUM : AGENT_SYSTEM_PROMPT_BASE;
   }
 
+  // Rough context-window occupancy for a status-line meter: ~4 chars per
+  // token over the whole message history. Deliberately an estimate -- real
+  // usage numbers arrive in provider-specific shapes (and some only via
+  // extra request flags), while this is provider-neutral and free. The ~
+  // prefix on the UI side is what keeps it honest.
+  estimateContextTokens() {
+    if (!this.messages) return 0;
+    try {
+      let chars = 0;
+      for (const m of this.messages) chars += JSON.stringify(m).length;
+      return Math.ceil(chars / 4);
+    } catch {
+      return 0;
+    }
+  }
+
   async turn(userText) {
     if (this.provider === 'claude') return this.turnClaude(userText);
     return this.turnOpenAIStyle(userText);
@@ -535,14 +564,23 @@ class ChatSession {
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const response = await this.client.messages.create({
-        model: this.model || 'claude-sonnet-5',
+      // Streamed rather than create(): text deltas go out live through the
+      // assistantStream hook as they arrive, so a wired-up front-end paints
+      // tokens mid-generation instead of after the full response -- and
+      // interim text emitted before a tool call is now visible too, where
+      // non-streaming discarded it. finalMessage() resolves with the same
+      // assembled response object create() would have returned, so every
+      // line below is unchanged.
+      const stream = this.client.messages.stream({
+        model: this.model || CLAUDE_DEFAULT_MODEL,
         max_tokens: 1536,
         temperature: 0.4,
         system: this.systemPrompt,
         tools,
         messages: this.messages,
       });
+      stream.on('text', emitAssistantDelta);
+      const response = await stream.finalMessage();
 
       this.messages.push({ role: 'assistant', content: response.content });
       const toolUses = response.content.filter((b) => b.type === 'tool_use');
@@ -570,23 +608,59 @@ class ChatSession {
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const response = await this.client.chat.completions.create({
+      // Same streaming rationale as turnClaude. The OpenAI wire format sends
+      // the message as fragments -- delta.content pieces plus tool_calls
+      // split across chunks by index (id, function name and JSON arguments
+      // each arrive in pieces) -- so they are reassembled here into exactly
+      // the message object the non-streaming response carried, keeping the
+      // history push and tool dispatch below byte-compatible.
+      const stream = await this.client.chat.completions.create({
         model: this.model || CHAT_DEFAULT_MODEL[this.provider],
         max_tokens: 1536,
         temperature: 0.4,
         tools,
         tool_choice: 'auto',
         messages: this.messages,
+        stream: true,
       });
 
-      const msg = response.choices[0].message;
-      this.messages.push(msg);
-
-      if (!msg.tool_calls || msg.tool_calls.length === 0) {
-        return msg.content || '';
+      let content = '';
+      const toolSlots = new Map(); // tool_calls index -> { id, name, args }
+      for await (const part of stream) {
+        const choice = part.choices && part.choices[0];
+        if (!choice) continue;
+        const delta = choice.delta;
+        if (!delta) continue;
+        if (typeof delta.content === 'string' && delta.content.length > 0) {
+          content += delta.content;
+          emitAssistantDelta(delta.content);
+        }
+        for (const tc of delta.tool_calls || []) {
+          const index = typeof tc.index === 'number' ? tc.index : toolSlots.size;
+          let slot = toolSlots.get(index);
+          if (!slot) {
+            slot = { id: '', name: '', args: '' };
+            toolSlots.set(index, slot);
+          }
+          if (tc.id) slot.id += tc.id;
+          if (tc.function && tc.function.name) slot.name += tc.function.name;
+          if (tc.function && tc.function.arguments) slot.args += tc.function.arguments;
+        }
       }
 
-      for (const call of msg.tool_calls) {
+      const toolCalls = [...toolSlots.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, s]) => ({ id: s.id, type: 'function', function: { name: s.name, arguments: s.args } }));
+
+      const msg = { role: 'assistant', content: toolCalls.length > 0 ? (content || null) : content };
+      this.messages.push(msg);
+
+      if (toolCalls.length === 0) {
+        return content || '';
+      }
+
+      msg.tool_calls = toolCalls;
+      for (const call of toolCalls) {
         let args = {};
         try { args = JSON.parse(call.function.arguments || '{}'); } catch { /* malformed args from the model -- run with {} */ }
         const result = await this.runToolWithDisplay(call.function.name, args);
@@ -628,5 +702,10 @@ module.exports = {
   resolveApiKey,
   CHAT_PROVIDERS,
   CHAT_ENV_VAR,
+  CHAT_DEFAULT_MODEL,
+  // Conservative context-window sizes for the footer meter (provider-level
+  // defaults; a --model override may differ, which the ~ accepts).
+  CONTEXT_WINDOWS: { claude: 200000, groq: 131072, deepseek: 65536 },
   setWriteOut: (fn) => { writeOut = fn; },
+  setAssistantStream: (fn) => { assistantStream = typeof fn === 'function' ? fn : null; },
 };

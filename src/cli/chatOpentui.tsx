@@ -6,13 +6,30 @@
 // via `mrrobot code`, which locates bun and runs this file -- plain Node
 // cannot, OpenTUI's native renderer only initializes under Bun/Deno, which
 // is why the dispatcher falls back to chat.js when bun is missing.
+//
+// Responsiveness and chrome follow opencode's own patterns (its
+// packages/tui is the reference): replies stream token-by-token into a live
+// markdown row -- chatCore emits deltas through an opt-in hook and its tool
+// logic is untouched -- assistant text renders through OpenTUI's
+// <markdown>, colors are semantic theme tokens switchable via /themes,
+// "/" opens a command palette, ctrl+o toggles full tool output, and the
+// footer carries an approximate context meter.
 
 import { render, useKeyboard, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { SyntaxStyle } from "@opentui/core";
+import { createEffect, createMemo, createRoot, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createStore } from "solid-js/store";
 
 const path = require("path");
 const coreModule = require("./chatCore");
-const { ChatSession, resolveApiKey, setWriteOut } = coreModule;
+const {
+  ChatSession,
+  resolveApiKey,
+  setWriteOut,
+  setAssistantStream,
+  CONTEXT_WINDOWS,
+  CHAT_DEFAULT_MODEL,
+} = coreModule;
 
 function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
@@ -32,6 +49,17 @@ Options:
   --cwd <path>            Default folder for scans when you don't name one
   --enable-validation     Adds http_request/run_command tools -- every use still asks to confirm first
   --help                  Show this help
+
+Session commands (type at the prompt):
+
+  /help                   keybinds & commands
+  /themes                 switch color theme
+  /details                toggle full tool output (also ctrl+o)
+  /clear                  start a new conversation
+  /exit                   quit the session (also ctrl+c)
+
+Replies stream in as they are generated; tool output collapses to its first
+line -- ctrl+o expands it.
 `;
 
 type Args = {
@@ -102,6 +130,22 @@ const SPLIT_BORDER_CHARS = {
   rightT: "",
 };
 
+// Rounded corners for dialogs and overlays -- the box style opencode uses
+// for its centered dialogs.
+const ROUNDED_BORDER_CHARS = {
+  topLeft: "╭",
+  topRight: "╮",
+  bottomLeft: "╰",
+  bottomRight: "╯",
+  horizontal: "─",
+  vertical: "│",
+  leftT: "├",
+  rightT: "┤",
+  topT: "┬",
+  bottomT: "┴",
+  cross: "┼",
+};
+
 type LogKind =
   | "user"        // what you typed -- blue bar, no dot
   | "assistant"   // the model's reply -- green dot
@@ -112,29 +156,124 @@ type LogKind =
 
 // `pending` is true for a tool row whose work is still in flight; it drives
 // whether the gutter shows the spinner or the settled per-tool icon.
-// `tool` is the tool's name, used to pick that icon.
-type LogItem = { id: number; text: string; kind: LogKind; pending?: boolean; tool?: string };
+// `tool` is the tool's name, used to pick that icon. `lines` is the
+// pre-split line array for tool results, which lets the collapsed view
+// show just the summary line without re-splitting on every render.
+type LogItem = { id: number; text: string; kind: LogKind; pending?: boolean; tool?: string; lines?: string[] };
 
-// Green phosphor palette -- one place to retune the whole TUI.
-const COLOR_TEXT = "#c8facc";    // body text: pale green, kept light enough to read as prose
-const COLOR_ACCENT = "#39d353";  // icons, the user-message bar, the prompt caret
-const COLOR_MUTED = "#5c9c6b";   // tool output and status chrome, recedes behind body text
-const COLOR_PANEL = "#0d1710";   // near-black with a green cast, for filled panels
+// ---------------------------------------------------------------------------
+// Themes. Semantic tokens rather than bare constants -- the palette values
+// below are the exact green-phosphor colors this TUI has always used, just
+// given names (and a second, amber CRT variant to make switching real).
+// One place to retune the whole TUI.
+// ---------------------------------------------------------------------------
+type ThemeTokens = {
+  name: string;
+  desc: string;
+  text: string;     // body text: pale green, kept light enough to read as prose
+  accent: string;   // icons, the user-message bar, the prompt caret
+  muted: string;    // tool output and status chrome, recedes behind body text
+  panel: string;    // near-black with a green cast, for filled panels
+  border: string;   // the composer's outline -- barely there, dim by design
+  shadow: string;   // the wordmark's drop shadow
+  confirmBg: string; // the confirm prompt stays visually loud: inverted
+  confirmFg: string;
+  composerBar: string; // the indicator bar on the composer's left edge
+  link: string;     // markdown link labels
+  code: string;     // inline code foreground
+  codeBg: string;   // fenced code block background
+};
+
+const THEMES: Record<string, ThemeTokens> = {
+  mrrobot: {
+    name: "mrrobot",
+    desc: "green phosphor (default)",
+    text: "#c8facc",
+    accent: "#39d353",
+    muted: "#5c9c6b",
+    panel: "#0d1710",
+    border: "#1f3a26",
+    shadow: "#20502e",
+    confirmBg: "#39d353",
+    confirmFg: "#04170a",
+    composerBar: "#58a6ff", // GitHub blue -- the partner of this theme's GitHub green
+    link: "#6fd585",
+    code: "#8fe9a8",
+    codeBg: "#101c14",
+  },
+  amber: {
+    name: "amber",
+    desc: "amber CRT phosphor",
+    text: "#ffd489",
+    accent: "#ffb000",
+    muted: "#a97e2f",
+    panel: "#140d02",
+    border: "#3d2b0c",
+    shadow: "#4a3308",
+    confirmBg: "#ffb000",
+    confirmFg: "#1a1000",
+    composerBar: "#ffb000",
+    link: "#e8a83e",
+    code: "#ffc857",
+    codeBg: "#1c1305",
+  },
+};
+
+const [themeName, setThemeName] = createSignal<string>("mrrobot");
+const t = () => THEMES[themeName()];
+
 // The composer's outline in opencode is barely there -- the panel reads as a
 // panel because of its fill, not its edge. A bright edge (the accent) turns it
 // into the loudest thing on screen, so the border gets its own dim tone.
-const COLOR_BORDER = "#1f3a26";
-// The wordmark's drop shadow. Dark enough to read as depth behind the letters
-// rather than as a second, blurrier wordmark competing with the first.
-const COLOR_SHADOW = "#20502e";
-// Cells with no ink still need a color for the half-block renderer; the panel
-// tone doubles as "nothing here".
-const COLOR_NONE = COLOR_PANEL;
-// The confirm prompt gates real HTTP requests and shell commands, so it
-// stays visually loud -- inverted (dark text on bright green) rather than
-// another shade in the same range, which would make it easy to miss.
-const COLOR_CONFIRM_BG = "#39d353";
-const COLOR_CONFIRM_FG = "#04170a";
+
+// Wordmark ink -> current theme color, resolved at render time so /themes
+// recolors even the splash without a restart.
+function inkToColor(ink: number): string {
+  if (ink === INK_DIM) return t().muted;
+  if (ink === INK_BRIGHT) return t().accent;
+  if (ink === INK_SHADOW) return t().shadow;
+  return t().panel; // INK_NONE: cells with no ink still need a color
+}
+
+// Markdown styling through OpenTUI's SyntaxStyle, rebuilt per theme. Scope
+// names are the ones OpenTUI's markdown renderer resolves (tree-sitter
+// captures + its hardcoded spans); heading levels must each be registered
+// because scope fallback only steps down to the first dot segment.
+function markdownTheme(c: ThemeTokens) {
+  const headingStyle = { fg: c.accent, bold: true };
+  const codeStyle = { fg: c.code, bg: c.codeBg };
+  const codeBlockStyle = { fg: c.text, bg: c.codeBg };
+  return [
+    { scope: ["default"], style: { fg: c.text } },
+    { scope: ["markup.heading.1"], style: headingStyle },
+    { scope: ["markup.heading.2"], style: headingStyle },
+    { scope: ["markup.heading.3"], style: headingStyle },
+    { scope: ["markup.heading.4"], style: headingStyle },
+    { scope: ["markup.heading.5"], style: headingStyle },
+    { scope: ["markup.heading.6"], style: headingStyle },
+    { scope: ["label"], style: { fg: c.muted } },
+    { scope: ["punctuation.special"], style: { fg: c.muted } },
+    { scope: ["markup.raw"], style: codeStyle },
+    { scope: ["markup.raw.block"], style: codeBlockStyle },
+    { scope: ["markup.strong"], style: { fg: c.text, bold: true } },
+    { scope: ["markup.italic"], style: { fg: c.text, italic: true } },
+    { scope: ["markup.strikethrough"], style: { fg: c.muted, dim: true } },
+    { scope: ["markup.link"], style: { fg: c.muted } },
+    { scope: ["markup.link.label"], style: { fg: c.link, underline: true } },
+    { scope: ["markup.link.url"], style: { fg: c.muted, dim: true } },
+    { scope: ["markup.list"], style: { fg: c.accent } },
+    { scope: ["markup.quote"], style: { fg: c.muted, italic: true } },
+    { scope: ["string.escape"], style: { fg: c.text } },
+    { scope: ["character.special"], style: { fg: c.text } },
+    { scope: ["keyword.directive"], style: { fg: c.muted } },
+  ];
+}
+
+// Module-level memo wrapped in createRoot (no owning component) -- one
+// native SyntaxStyle per theme switch instead of one per message row.
+const mdStyle = createRoot(() =>
+  createMemo(() => SyntaxStyle.fromTheme(markdownTheme(t()) as any))
+);
 
 // Block-letter splash, following opencode's: a chunky wordmark, two-tone
 // (their "open" is dim, "code" is bright), with the version tucked under its
@@ -296,54 +435,50 @@ const WORDMARK_GRID = buildWordmarkGrid();
 const LOGO_WIDTH = WORDMARK_GRID[0].length;
 const VERSION = `v${require("../../package.json").version}`;
 
-type Span = { text: string; fg: string; bg?: string };
+// A wordmark cell carries ink layers rather than resolved colors, so a
+// theme switch can recolor the splash without rebuilding the grid.
+type WCell = { ch: string; ink: number; bging?: number };
 
 // One text row = two pixel rows. A cell whose halves carry different inks
 // becomes ▀ with the lower ink as its background; matching halves collapse to
-// a solid █. Runs of identical (char, fg, bg) are merged so a row emits a
-// handful of spans instead of one per column.
-function wordmarkRowSpans(grid: number[][], textRow: number, inkColor: (ink: number) => string): Span[] {
+// a solid █. Runs of identical (char, ink, bgInk) are merged so a row emits a
+// handful of cells instead of one per column.
+function wordmarkRowSpans(grid: number[][], textRow: number): WCell[] {
   const top = grid[textRow * 2];
   const bottom = grid[textRow * 2 + 1];
-  const spans: Span[] = [];
+  const cells: WCell[] = [];
   for (let c = 0; c < top.length; c += 1) {
-    const t = top[c];
+    const a = top[c];
     const b = bottom[c];
-    let cell: Span;
-    if (t === INK_NONE && b === INK_NONE) cell = { text: " ", fg: inkColor(INK_NONE) };
-    else if (t === b) cell = { text: "█", fg: inkColor(t) };
-    else if (b === INK_NONE) cell = { text: "▀", fg: inkColor(t) };
-    else if (t === INK_NONE) cell = { text: "▄", fg: inkColor(b) };
-    else cell = { text: "▀", fg: inkColor(t), bg: inkColor(b) };
+    let cell: WCell;
+    if (a === INK_NONE && b === INK_NONE) cell = { ch: " ", ink: a };
+    else if (a === b) cell = { ch: "█", ink: a };
+    else if (b === INK_NONE) cell = { ch: "▀", ink: a };
+    else if (a === INK_NONE) cell = { ch: "▄", ink: b };
+    else cell = { ch: "▀", ink: a, bging: b };
 
-    const prev = spans[spans.length - 1];
-    if (prev && prev.text[0] === cell.text && prev.fg === cell.fg && prev.bg === cell.bg) {
-      prev.text += cell.text;
+    const prev = cells[cells.length - 1];
+    if (prev && prev.ch === cell.ch && prev.ink === cell.ink && prev.bging === cell.bging) {
+      prev.ch += cell.ch;
     } else {
-      spans.push(cell);
+      cells.push(cell);
     }
   }
-  return spans;
+  return cells;
 }
 
-// Phrased as things to type, not slash commands -- the only slash commands
-// this front-end actually handles are /exit and /quit, and listing anything
-// else here would be inventing a command surface that does not exist.
+// Phrased as things to type, not slash commands -- phrasing kept from the
+// original splash; the actual command surface lives in the "/" palette.
 const SPLASH_HINTS: [string, string][] = [
   ["scan this folder", "run the full scan pipeline"],
   ["what did you find", "list findings from the last scan"],
   ["explain finding 3", "dig into one finding"],
   ["/exit", "quit the session"],
 ];
-const INK_COLORS: Record<number, string> = {
-  [INK_NONE]: COLOR_NONE,
-  [INK_DIM]: COLOR_MUTED,
-  [INK_BRIGHT]: COLOR_ACCENT,
-  [INK_SHADOW]: COLOR_SHADOW,
-};
-const WORDMARK_ROWS: Span[][] = Array.from(
+
+const WORDMARK_ROWS: WCell[][] = Array.from(
   { length: WORDMARK_GRID.length / 2 },
-  (_, row) => wordmarkRowSpans(WORDMARK_GRID, row, (ink) => INK_COLORS[ink])
+  (_, row) => wordmarkRowSpans(WORDMARK_GRID, row)
 );
 
 const KEY_FIELD_WIDTH = 52;
@@ -367,24 +502,28 @@ function Wordmark() {
       {roomForWordmark() ? (
         <box flexDirection="column" flexShrink={0}>
           <For each={WORDMARK_ROWS}>
-            {(spans) => (
+            {(cells) => (
               <box flexDirection="row">
-                <For each={spans}>
-                  {(span) => <text fg={span.fg} bg={span.bg}>{span.text}</text>}
+                <For each={cells}>
+                  {(cell) => (
+                    <text fg={inkToColor(cell.ink)} bg={cell.bging != null ? inkToColor(cell.bging) : undefined}>
+                      {cell.ch}
+                    </text>
+                  )}
                 </For>
               </box>
             )}
           </For>
           {/* Version sits under the wordmark's right edge, as opencode's does. */}
           <box width={LOGO_WIDTH} flexShrink={0} justifyContent="flex-end" flexDirection="row">
-            <text fg={COLOR_MUTED}>{VERSION}</text>
+            <text fg={t().muted}>{VERSION}</text>
           </box>
         </box>
       ) : (
         <box flexDirection="row" flexShrink={0}>
-          <text fg={COLOR_MUTED}>MR</text>
-          <text fg={COLOR_ACCENT}>ROBOT </text>
-          <text fg={COLOR_MUTED}>{VERSION}</text>
+          <text fg={t().muted}>MR</text>
+          <text fg={t().accent}>ROBOT </text>
+          <text fg={t().muted}>{VERSION}</text>
         </box>
       )}
     </>
@@ -409,15 +548,15 @@ function Splash(props: { banner: string }) {
     <box flexDirection="column" alignItems="center" marginTop={1} marginBottom={1} flexShrink={0}>
       <Wordmark />
       <box marginTop={1} flexShrink={0}>
-        <text fg={COLOR_MUTED}>{props.banner}</text>
+        <text fg={t().muted}>{props.banner}</text>
       </box>
       <Show when={roomForHints()}>
         <box flexDirection="column" marginTop={1} flexShrink={0}>
           <For each={SPLASH_HINTS}>
             {([cmd, desc]) => (
               <box flexDirection="row">
-                <text width={HINT_COLUMN} flexShrink={0} fg={COLOR_TEXT}>{cmd}</text>
-                <text fg={COLOR_MUTED}>{desc}</text>
+                <text width={HINT_COLUMN} flexShrink={0} fg={t().text}>{cmd}</text>
+                <text fg={t().muted}>{desc}</text>
               </box>
             )}
           </For>
@@ -492,27 +631,27 @@ export function ApiKeyPrompt(props: { provider: string; onSubmit: (provider: str
         <box flexDirection="column" alignItems="center" flexShrink={0}>
           <Wordmark />
           <box marginTop={1} flexShrink={0}>
-            <text fg={COLOR_MUTED}>No API key found. Paste one to get started.</text>
+            <text fg={t().muted}>No API key found. Paste one to get started.</text>
           </box>
 
           <box flexDirection="row" marginTop={1} flexShrink={0}>
             <For each={PROVIDERS}>
               {(name) => (
                 <text
-                  fg={provider() === name ? COLOR_CONFIRM_FG : COLOR_MUTED}
-                  bg={provider() === name ? COLOR_ACCENT : COLOR_PANEL}
+                  fg={provider() === name ? t().confirmFg : t().muted}
+                  bg={provider() === name ? t().accent : t().panel}
                 >
                   {` ${name} `}
                 </text>
               )}
             </For>
-            <text fg={COLOR_MUTED}>{"  tab to switch"}</text>
+            <text fg={t().muted}>{"  tab to switch"}</text>
           </box>
 
           <box
             border
-            borderColor={COLOR_BORDER}
-            backgroundColor={COLOR_PANEL}
+            borderColor={t().border}
+            backgroundColor={t().panel}
             paddingLeft={1}
             paddingRight={1}
             marginTop={1}
@@ -520,8 +659,8 @@ export function ApiKeyPrompt(props: { provider: string; onSubmit: (provider: str
             flexShrink={0}
             flexDirection="row"
           >
-            <text fg={COLOR_ACCENT}>{"› "}</text>
-            <text fg={COLOR_TEXT}>
+            <text fg={t().accent}>{"› "}</text>
+            <text fg={t().text}>
               {key().length > 0
                 ? "•".repeat(Math.min(key().length, KEY_FIELD_WIDTH - 6))
                 : (envKey() ? `using ${ENV_VAR[provider()]}` : "")}
@@ -529,12 +668,12 @@ export function ApiKeyPrompt(props: { provider: string; onSubmit: (provider: str
           </box>
 
           <box marginTop={1} flexShrink={0}>
-            <text fg={error() ? COLOR_ACCENT : COLOR_MUTED}>
+            <text fg={error() ? t().accent : t().muted}>
               {error() || `enter to continue · ctrl+c to quit`}
             </text>
           </box>
           <box flexShrink={0}>
-            <text fg={COLOR_MUTED}>
+            <text fg={t().muted}>
               {`skip this next time by setting ${ENV_VAR[provider()]}`}
             </text>
           </box>
@@ -601,10 +740,125 @@ function createSpinner() {
   return () => SPINNER_FRAMES[tick() % SPINNER_FRAMES.length];
 }
 
+// Slash-command surface, mirroring opencode's vocabulary where the actions
+// overlap. Aliases match the ones users type by reflex.
+type CommandDef = { name: string; desc: string; aliases: string[] };
+const COMMANDS: CommandDef[] = [
+  { name: "help", desc: "keybinds & commands", aliases: [] },
+  { name: "themes", desc: "switch color theme", aliases: ["theme"] },
+  { name: "details", desc: "toggle full tool output", aliases: [] },
+  { name: "clear", desc: "start a new conversation", aliases: ["new"] },
+  { name: "exit", desc: "quit the session", aliases: ["quit"] },
+];
+
+// Titlecased provider name for the composer meta row, the way opencode
+// titlecases its agent name.
+const PROVIDER_TITLE: Record<string, string> = { claude: "Claude", groq: "Groq", deepseek: "DeepSeek" };
+const providerTitle = (p: string) => PROVIDER_TITLE[p] ?? p.charAt(0).toUpperCase() + p.slice(1);
+
+// Display label for the provider org, the muted word trailing the model id
+// in opencode's composer ("Build · model OpenCode Zen").
+const PROVIDER_ORG: Record<string, string> = { claude: "Anthropic", groq: "Groq", deepseek: "DeepSeek" };
+
+// opencode's footer context reads "204.4K (20%)" -- same shape here.
+function fmtTokens(n: number): string {
+  return n >= 1000 ? `${(Math.round(n / 100) / 10).toFixed(1)}K` : `${n}`;
+}
+
+// Centered overlay frame -- opencode draws its dialogs as rounded panels
+// floating over the transcript rather than replacing it, so the backdrop is
+// deliberately transparent.
+function DialogFrame(props: { title: string; width: number; children?: any }) {
+  return (
+    <box position="absolute" top={0} left={0} width="100%" height="100%" justifyContent="center" alignItems="center">
+      <box
+        flexDirection="column"
+        width={props.width}
+        border
+        borderColor={t().border}
+        backgroundColor={t().panel}
+        customBorderChars={ROUNDED_BORDER_CHARS}
+        paddingLeft={2}
+        paddingRight={2}
+        paddingTop={1}
+        paddingBottom={1}
+      >
+        <box flexDirection="row" justifyContent="space-between">
+          <text fg={t().accent}>{props.title}</text>
+          <text fg={t().muted}>esc close</text>
+        </box>
+        {props.children}
+      </box>
+    </box>
+  );
+}
+
+function HelpDialog(props: { onClose: () => void }) {
+  useKeyboard((e: any) => {
+    if (e.name === "escape" || e.name === "return" || e.name === "enter") props.onClose();
+  });
+  const ROWS: [string, string][] = [
+    ["enter", "send message · run selected command"],
+    ["ctrl+p", "command palette"],
+    ["ctrl+o", "toggle full tool output"],
+    ["ctrl+c", "quit MrRobotBot"],
+    ["↑ ↓", "move through menus"],
+    ["esc", "close dialogs"],
+  ];
+  return (
+    <DialogFrame title="keybinds" width={54}>
+      <box flexDirection="column" marginTop={1}>
+        <For each={ROWS}>
+          {([k, d]) => (
+            <box flexDirection="row">
+              <text width={10} flexShrink={0} fg={t().accent}>{k}</text>
+              <text fg={t().text}>{d}</text>
+            </box>
+          )}
+        </For>
+      </box>
+    </DialogFrame>
+  );
+}
+
+function ThemeDialog(props: { onClose: () => void; onApply: (name: string) => void }) {
+  const names = Object.keys(THEMES);
+  const [sel, setSel] = createSignal(Math.max(0, names.indexOf(themeName())));
+  useKeyboard((e: any) => {
+    if (e.name === "escape") return props.onClose();
+    if (e.name === "up") return setSel((i) => Math.max(0, i - 1));
+    if (e.name === "down") return setSel((i) => Math.min(names.length - 1, i + 1));
+    if (e.name === "return" || e.name === "enter") {
+      const name = names[sel()];
+      setThemeName(name);
+      props.onApply(name);
+      props.onClose();
+    }
+  });
+  return (
+    <DialogFrame title="theme" width={44}>
+      <box flexDirection="column" marginTop={1}>
+        <For each={names}>
+          {(name, i) => (
+            <box flexDirection="row">
+              <text width={12} flexShrink={0} fg={i() === sel() ? t().confirmFg : t().accent} bg={i() === sel() ? t().accent : t().panel}>
+                {name}
+              </text>
+              <text flexGrow={1} fg={i() === sel() ? t().confirmFg : t().muted} bg={i() === sel() ? t().accent : t().panel}>
+                {THEMES[name].desc}
+              </text>
+            </box>
+          )}
+        </For>
+      </box>
+    </DialogFrame>
+  );
+}
+
 // One entry in the scrollback, following opencode's InlineTool structure:
 // a 2-cell icon column with the body beside it, so a wrapped body stays
 // aligned under itself rather than sliding back under the icon.
-function LogRow(props: { item: LogItem; spinner: () => string }) {
+function LogRow(props: { item: LogItem; spinner: () => string; showDetails: () => boolean }) {
   const kind = () => props.item.kind;
 
   // User message: a heavy left bar with a filled panel beside it, drawn
@@ -614,34 +868,60 @@ function LogRow(props: { item: LogItem; spinner: () => string }) {
     return (
       <box
         border={["left"]}
-        borderColor={COLOR_ACCENT}
+        borderColor={t().accent}
         customBorderChars={SPLIT_BORDER_CHARS}
         marginTop={1}
         marginBottom={1}
         flexShrink={0}
       >
-        <box paddingTop={1} paddingBottom={1} paddingLeft={2} backgroundColor={COLOR_PANEL} flexShrink={0}>
-          <text fg={COLOR_TEXT}>{props.item.text}</text>
+        <box paddingTop={1} paddingBottom={1} paddingLeft={2} backgroundColor={t().panel} flexShrink={0}>
+          <text fg={t().text}>{props.item.text}</text>
         </box>
       </box>
     );
   }
 
-  // Assistant replies carry no icon at all in opencode -- they're just
-  // body text, which is what keeps the icon column meaningful.
-  if (kind() === "assistant" || kind() === "plain") {
+  // Assistant replies render as markdown through OpenTUI's renderer -- the
+  // same element opencode builds its message list on. Tool-free plain UI
+  // text stays a bare <text>.
+  if (kind() === "assistant") {
     return (
-      <box marginTop={kind() === "assistant" ? 1 : 0}>
-        <text fg={COLOR_TEXT}>{props.item.text}</text>
+      <box marginTop={1} flexShrink={0} flexDirection="column">
+        <markdown content={props.item.text} syntaxStyle={mdStyle()} conceal={true} />
       </box>
     );
   }
 
-  // Tool output and progress chatter both hang under the icon column.
-  if (kind() === "tool-result" || kind() === "log") {
+  if (kind() === "plain") {
+    return (
+      <box flexShrink={0}>
+        <text fg={t().text}>{props.item.text}</text>
+      </box>
+    );
+  }
+
+  // Tool output hangs under the icon column. Collapsed by default to its
+  // summary line (opencode hides execution details behind a toggle too);
+  // ctrl+o expands everything.
+  if (kind() === "tool-result") {
+    const lines = props.item.lines ?? props.item.text.split("\n");
+    const collapsed = () => !props.showDetails() && lines.length > 1;
+    return (
+      <box paddingLeft={TOOL_ICON_WIDTH} flexDirection="column" flexShrink={0}>
+        <For each={collapsed() ? lines.slice(0, 1) : lines}>
+          {(line) => <text fg={t().muted}>{line}</text>}
+        </For>
+        <Show when={collapsed()}>
+          <text fg={t().muted}>{`… ${lines.length - 1} more lines · ctrl+o expands`}</text>
+        </Show>
+      </box>
+    );
+  }
+
+  if (kind() === "log") {
     return (
       <box paddingLeft={TOOL_ICON_WIDTH}>
-        <text fg={COLOR_MUTED}>{props.item.text}</text>
+        <text fg={t().muted}>{props.item.text}</text>
       </box>
     );
   }
@@ -649,40 +929,93 @@ function LogRow(props: { item: LogItem; spinner: () => string }) {
   // A tool: spinner while it runs, its own icon once settled.
   return (
     <box flexDirection="row" marginTop={1}>
-      <text width={TOOL_ICON_WIDTH} flexShrink={0} fg={COLOR_ACCENT}>
+      <text width={TOOL_ICON_WIDTH} flexShrink={0} fg={t().accent}>
         {props.item.pending ? props.spinner() : (TOOL_ICON[props.item.tool ?? ""] ?? TOOL_ICON_FALLBACK)}
       </text>
-      <text flexGrow={1} fg={COLOR_TEXT}>{props.item.text}</text>
+      <text flexGrow={1} fg={t().text}>{props.item.text}</text>
     </box>
   );
 }
 
 export function App(props: { session: any; banner: string }) {
-  const [logs, setLogs] = createSignal<LogItem[]>([]);
+  // Store, not signal-of-array: patching one row's `pending` flag mutates in
+  // place, so Solid's keyed <For> never remounts a settled row -- the old
+  // map-to-new-objects approach recreated every spinning item exactly when
+  // a tool finished, which flickered precisely at the moment of interest.
+  const [logs, setLogs] = createStore<LogItem[]>([]);
   const [value, setValue] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   // Holds the pending confirm() resolver while a validation-tool call is
   // waiting on a y/n answer -- non-null means the input line is currently
   // acting as that confirm prompt instead of the normal chat box.
   const [confirmResolve, setConfirmResolve] = createSignal<((v: boolean) => void) | null>(null);
+  // Accumulates the assistant reply while it streams; flushed into liveText
+  // on a coalescing timer so a burst of deltas paints once, like opencode's
+  // batched updates, instead of once per chunk.
+  const [liveText, setLiveText] = createSignal("");
+  const [dialog, setDialog] = createSignal<null | "help" | "themes">(null);
+  // Full tool cards visible by default (as this TUI always showed them);
+  // ctrl+o or /details collapses long output to its summary line.
+  const [showDetails, setShowDetails] = createSignal(true);
+  const [cmdIndex, setCmdIndex] = createSignal(0);
+  const [toastMsg, setToastMsg] = createSignal<string | null>(null);
+  const [ctxPct, setCtxPct] = createSignal(0);
+  // Footer status item -- mirrors opencode's "• N LSP" slot with the thing
+  // this app actually has to count.
+  const [findingsCount, setFindingsCount] = createSignal(0);
+  const [ctxTokens, setCtxTokens] = createSignal(0);
+
   const spinner = createSpinner();
   watchTerminalSize();
   const quit = useQuit();
   let idCounter = 0;
   let inputRef: any;
 
-  // Marks every currently-spinning row as settled. Called when a tool
-  // reports its result, and again when a turn ends -- the second call
-  // matters because some tools render no result at all (renderToolResult
-  // returns '' and the row is skipped), which would otherwise leave a row
-  // spinning forever.
+  // --- streaming buffers ---------------------------------------------------
+  const FLUSH_MS = 40;
+  let deltaBuf = "";
+  let deltaTimer: ReturnType<typeof setTimeout> | null = null;
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  let sawDeltas = false;          // did this turn stream anything?
+  let producedLiveRowThisTurn = 0; // assistant rows appended from the stream
+
+  function flushDeltaBuf() {
+    if (deltaTimer) { clearTimeout(deltaTimer); deltaTimer = null; }
+    if (!deltaBuf) return;
+    const chunk = deltaBuf;
+    deltaBuf = "";
+    setLiveText((v) => v + chunk);
+  }
+
+  // Turns whatever streamed so far into a settled transcript row. Called at
+  // tool boundaries (so text emitted before a tool_use lands above its
+  // trace) and at end of turn (so the final reply isn't pushed twice).
+  function finalizeLive() {
+    flushDeltaBuf();
+    const text = liveText();
+    if (!text.trim()) { setLiveText(""); return; }
+    idCounter += 1;
+    setLogs(logs.length, { id: idCounter, text, kind: "assistant" });
+    setLiveText("");
+    producedLiveRowThisTurn += 1;
+  }
+
   function settlePending() {
-    setLogs((prev) =>
-      prev.some((l) => l.pending) ? prev.map((l) => (l.pending ? { ...l, pending: false } : l)) : prev
-    );
+    // In-place property patches only -- no object replacement, no remounts.
+    // Called when a tool reports its result, and again when a turn ends --
+    // the second call matters because some tools render no result at all
+    // (renderToolResult returns '' and the row is skipped), which would
+    // otherwise leave a row spinning forever.
+    for (let i = 0; i < logs.length; i += 1) {
+      const l = logs[i];
+      if (l.pending) setLogs(i, "pending", false);
+    }
   }
 
   function pushLog(text: string, kind: LogKind = "plain", meta?: { tool?: string }) {
+    // Streamed text already on screen settles above a tool trace, keeping
+    // the model's words and the tool run in chronological order.
+    if (kind === "tool" || kind === "log") finalizeLive();
     idCounter += 1;
     let clean = stripAnsi(text).replace(/\n+$/, "");
     // chatCore prefixes tool traces with "→ " and indents its scan chatter,
@@ -695,18 +1028,129 @@ export function App(props: { session: any; banner: string }) {
     // A result (or the next tool starting) means whatever was spinning is
     // done -- settle it before appending the new row.
     if (kind === "tool-result" || kind === "tool") settlePending();
-    setLogs((prev) => [
-      ...prev,
-      { id: idCounter, text: clean, kind, pending: kind === "tool", tool: meta?.tool },
-    ]);
+    setLogs(logs.length, {
+      id: idCounter,
+      text: clean,
+      kind,
+      pending: kind === "tool",
+      tool: meta?.tool,
+      lines: kind === "tool-result" ? clean.split("\n") : undefined,
+    });
+  }
+
+  function showToast(msg: string) {
+    setToastMsg(msg);
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => setToastMsg(null), 2200);
+  }
+
+  function toggleDetails() {
+    const next = !showDetails();
+    setShowDetails(next);
+    showToast(next ? "tool details on" : "tool details off");
+  }
+
+  function refreshCtx() {
+    try {
+      const win = (CONTEXT_WINDOWS as Record<string, number>)[props.session.provider] || 128000;
+      const tokens = typeof props.session.estimateContextTokens === "function"
+        ? props.session.estimateContextTokens()
+        : 0;
+      setCtxPct(Math.min(99, Math.round((tokens / win) * 100)));
+      setCtxTokens(tokens);
+      setFindingsCount(props.session.lastScan?.findings?.length ?? 0);
+    } catch {
+      /* meter is best-effort */
+    }
+  }
+
+  // Rotating placeholder, opencode-style ("Ask anything... \"<example>\"")
+  // fed from the splash's own hint phrases so the two never drift apart.
+  const PLACEHOLDER_EXAMPLES = SPLASH_HINTS.map(([cmd]) => cmd).filter((cmd) => !cmd.startsWith("/"));
+  const [placeholderIdx, setPlaceholderIdx] = createSignal(0);
+  onMount(() => {
+    if (PLACEHOLDER_EXAMPLES.length < 2) return;
+    const timer = setInterval(
+      () => setPlaceholderIdx((i) => (i + 1) % PLACEHOLDER_EXAMPLES.length),
+      6000
+    );
+    onCleanup(() => clearInterval(timer));
+  });
+  const placeholderText = () =>
+    `Ask anything... "${PLACEHOLDER_EXAMPLES[placeholderIdx()]}"`;
+
+  // Slash palette visibility derives straight from the input text, the way
+  // opencode's does: typing "/" is opening it.
+  const filteredCommands = createMemo(() => {
+    const q = value().slice(1).trim().toLowerCase();
+    if (!q) return COMMANDS;
+    return COMMANDS.filter(
+      (c) => c.name.includes(q) || c.aliases.some((a) => a.includes(q)) || c.desc.toLowerCase().includes(q)
+    );
+  });
+  const paletteVisible = () => !dialog() && !confirmResolve() && value().startsWith("/");
+  // Keep the highlight inside the list as the filter shrinks it, and reset
+  // it whenever the query changes.
+  createEffect(() => {
+    value();
+    setCmdIndex(0);
+  });
+  createEffect(() => {
+    const n = filteredCommands().length;
+    if (cmdIndex() >= n) setCmdIndex(Math.max(0, n - 1));
+  });
+
+  function runCommand(name: string) {
+    switch (name) {
+      case "help":
+        setDialog("help");
+        break;
+      case "themes":
+      case "theme":
+        setDialog("themes");
+        break;
+      case "details":
+        toggleDetails();
+        break;
+      case "clear":
+      case "new":
+        if (busy()) { showToast("wait for this turn to finish"); return; }
+        // Fresh conversation: drop the LLM history and the transcript, but
+        // keep lastScan -- findings survive and stay explorable.
+        props.session.messages = undefined;
+        deltaBuf = "";
+        if (deltaTimer) { clearTimeout(deltaTimer); deltaTimer = null; }
+        setLiveText("");
+        setLogs([] as any);
+        setCtxPct(0);
+        setFindingsCount(0);
+        showToast("new conversation");
+        break;
+      case "exit":
+      case "quit":
+        quit();
+        break;
+    }
   }
 
   onMount(() => {
     // chatCore tags each write with its kind ('tool' | 'tool-result' |
-    // 'log'); anything untagged is plain UI text.
+    // 'log'); anything untagged is plain UI text. Deltas arrive through the
+    // separate opt-in hook and coalesce before painting.
     setWriteOut((text: string, kind: LogKind = "plain", meta?: { tool?: string }) => pushLog(text, kind, meta));
+    setAssistantStream((chunk: string) => {
+      sawDeltas = true;
+      deltaBuf += chunk;
+      if (!deltaTimer) {
+        deltaTimer = setTimeout(() => {
+          deltaTimer = null;
+          flushDeltaBuf();
+        }, FLUSH_MS);
+      }
+    });
     props.session.confirmFn = (message: string) =>
       new Promise<boolean>((resolve) => {
+        finalizeLive();
         pushLog(message);
         setConfirmResolve(() => resolve);
       });
@@ -714,22 +1158,60 @@ export function App(props: { session: any; banner: string }) {
     inputRef?.focus?.();
   });
 
+  onCleanup(() => {
+    setAssistantStream(null);
+    if (deltaTimer) clearTimeout(deltaTimer);
+    if (toastTimer) clearTimeout(toastTimer);
+  });
+
   useKeyboard((key: any) => {
     if (key.ctrl && key.name === "c") return quit();
+    if (dialog()) return; // open dialogs consume their own keys
+    if (key.ctrl && key.name === "o") return toggleDetails();
+    // opencode's command-palette keybind -- opens our "/" palette.
+    if (key.ctrl && key.name === "p") {
+      setValue("/");
+      setCmdIndex(0);
+      return;
+    }
+    if (paletteVisible()) {
+      if (key.name === "up") { setCmdIndex((i) => Math.max(0, i - 1)); return; }
+      if (key.name === "down") { setCmdIndex((i) => Math.min(filteredCommands().length - 1, i + 1)); return; }
+      if (key.name === "escape") { setValue(""); return; }
+    }
   });
 
   async function handleSubmit(raw: string) {
     const text = raw.trim();
-    setValue("");
 
+    // The confirm gate outranks everything -- including the palette, which
+    // is hidden anyway while a y/n answer is pending.
     const resolve = confirmResolve();
     if (resolve) {
       const approved = text.toLowerCase() === "y";
       setConfirmResolve(null);
+      setValue("");
       pushLog(approved ? "confirmed." : "declined.");
       resolve(approved);
       return;
     }
+
+    // While the palette is visible Enter selects from it rather than
+    // submitting to the model.
+    if (paletteVisible()) {
+      const items = filteredCommands();
+      if (items.length === 0) {
+        showToast(`unknown command: ${value()}`);
+        setValue("");
+        return;
+      }
+      const cmd = items[Math.min(cmdIndex(), items.length - 1)];
+      setValue("");
+      runCommand(cmd.name);
+      return;
+    }
+
+    setValue("");
 
     // The input stays mounted even while busy (see the JSX below) so it
     // never loses focus mid-conversation -- this guard is what actually
@@ -738,23 +1220,36 @@ export function App(props: { session: any; banner: string }) {
     if (busy()) return;
 
     if (!text) return;
-    if (text === "/exit" || text === "/quit") return quit();
 
     pushLog(text, "user");
+    sawDeltas = false;
+    producedLiveRowThisTurn = 0;
     setBusy(true);
     try {
       const reply = await props.session.turn(text);
       settlePending();
-      pushLog(reply, "assistant");
+      finalizeLive();
+      // With streaming wired up the reply already reached the screen token
+      // by token; pushing it again would duplicate the turn. The fallback
+      // covers providers/paths that produced no deltas at all.
+      if (!producedLiveRowThisTurn && reply && reply.trim()) pushLog(reply, "assistant");
+      refreshCtx();
     } catch (err: any) {
       settlePending();
+      finalizeLive();
       pushLog(`error: ${err.message}`, "assistant");
     }
     setBusy(false);
   }
 
-  const modelLabel = () => `${props.session.provider}${props.session.model ? " · " + props.session.model : ""}`;
   const confirming = () => confirmResolve() !== null;
+  // The model id the turn loop will actually use -- session.model when
+  // given, otherwise the provider's default from chatCore. Showing it keeps
+  // the meta row in opencode's "Agent · model" shape instead of a bare
+  // provider name.
+  const effectiveModel = () =>
+    props.session.model || (CHAT_DEFAULT_MODEL as Record<string, string>)[props.session.provider];
+  const hasContent = () => logs.length > 0 || liveText().length > 0;
 
   return (
     <box flexDirection="column" width="100%" height="100%">
@@ -766,7 +1261,7 @@ export function App(props: { session: any; banner: string }) {
         the splash becomes ordinary scrollback at the top of the transcript.
       */}
       <Show
-        when={logs().length > 0}
+        when={hasContent()}
         fallback={
           <box flexGrow={1} justifyContent="center" alignItems="center">
             <Splash banner={props.banner} />
@@ -775,73 +1270,168 @@ export function App(props: { session: any; banner: string }) {
       >
         <scrollbox flexGrow={1} stickyScroll stickyStart="bottom" paddingX={1}>
           <Splash banner={props.banner} />
-          <For each={logs()}>
-            {(item) => <LogRow item={item} spinner={spinner} />}
-          </For>
+          {/* Keyed on the theme name: a theme switch rebuilds the markdown
+              rows so their fresh SyntaxStyle is applied natively. */}
+          <Show when={themeName()} keyed>
+            {(currentTheme: string) => (
+              <>
+                <For each={logs}>
+                  {(item) => <LogRow item={item} spinner={spinner} showDetails={showDetails} />}
+                </For>
+                <Show when={liveText()}>
+                  <box marginTop={1} flexShrink={0} flexDirection="column">
+                    <markdown content={liveText()} syntaxStyle={mdStyle()} conceal={true} streaming={true} />
+                  </box>
+                </Show>
+              </>
+            )}
+          </Show>
         </scrollbox>
       </Show>
 
       {/*
-        flexShrink={0} keeps the taller composer whole: the scrollbox above
-        has flexGrow={1}, so without it yoga trims these rows to fit and the
-        status line under the box is the first thing to disappear.
+        The bottom section mirrors opencode's session route: a plain filled
+        composer panel (no edge ink) with its meta row *inside*, then their
+        Footer -- working directory on the left, status items on the right.
       */}
       <box flexDirection="column" marginTop={1} paddingX={1} flexShrink={0}>
-        {/*
-          A filled panel closed on all four sides in the dim border tone. The
-          left edge used to carry a bright accent bar (opencode's treatment,
-          which their user messages still use here) -- dropped, so the only
-          thing that lights up down there is the confirm prompt.
-          Three rows tall in total.
-        */}
         <box
-          border
-          borderColor={confirming() ? COLOR_CONFIRM_BG : COLOR_BORDER}
-          backgroundColor={confirming() ? COLOR_CONFIRM_BG : COLOR_PANEL}
-          paddingLeft={1}
-          paddingRight={1}
-          flexGrow={1}
-          flexDirection="row"
+          border={["left"]}
+          borderColor={confirming() ? t().confirmBg : t().composerBar}
+          customBorderChars={SPLIT_BORDER_CHARS}
+          backgroundColor={confirming() ? t().confirmBg : t().panel}
           flexShrink={0}
         >
-          <text
-            fg={confirming() ? COLOR_CONFIRM_FG : COLOR_ACCENT}
-            bg={confirming() ? COLOR_CONFIRM_BG : COLOR_PANEL}
-          >
-            {confirming() ? "confirm [y/N] " : "› "}
-          </text>
-          {/*
-            flexGrow is load-bearing, not cosmetic: with the input at its
-            default auto width it gets laid out overlapping the prompt to
-            its left, and the first N characters typed are clipped -- N
-            being the prompt's width, so "› " ate exactly two. Verified with
-            captureCharFrame(): auto width renders "› llo" for typed
-            "hello", flexGrow={1} renders "› hello".
-          */}
-          <input
-            ref={(el: any) => { inputRef = el; }}
-            flexGrow={1}
-            value={value()}
-            focused={true}
-            fg={confirming() ? COLOR_CONFIRM_FG : COLOR_TEXT}
-            bg={confirming() ? COLOR_CONFIRM_BG : COLOR_PANEL}
-            onInput={setValue}
-            onSubmit={handleSubmit}
-          />
-          {busy() ? (
-            <text fg={COLOR_MUTED} bg={COLOR_PANEL}>{`  ${spinner()} working…`}</text>
-          ) : null}
-        </box>
-        {/*
-          opencode puts the keybind hint on the left and the model on the
-          right, under the box rather than above it -- the reverse of what
-          was here.
-        */}
-        <box flexDirection="row" justifyContent="space-between" paddingLeft={1}>
-          <text fg={COLOR_MUTED}>enter send · ctrl+c quit</text>
-          <text fg={COLOR_MUTED}>{modelLabel()}</text>
+          <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
+            <input
+              ref={(el: any) => { inputRef = el; }}
+              flexGrow={1}
+              value={value()}
+              focused={!dialog()}
+              placeholder={confirming() ? "type y to approve · anything else declines" : placeholderText()}
+              placeholderColor={confirming() ? t().confirmFg : t().muted}
+              textColor={confirming() ? t().confirmFg : t().accent}
+              focusedTextColor={confirming() ? t().confirmFg : t().accent}
+              cursorColor={confirming() ? t().confirmFg : t().accent}
+              backgroundColor={confirming() ? t().confirmBg : t().panel}
+              focusedBackgroundColor={confirming() ? t().confirmBg : t().panel}
+              onInput={setValue}
+              onSubmit={handleSubmit}
+            />
+            {/*
+              The meta row opencode keeps under the prompt text: identity on
+              the left (theirs is agent · model · provider), transient state
+              on the right (theirs is a plugin slot).
+            */}
+            <box flexDirection="row" justifyContent="space-between" paddingTop={1} gap={1}>
+              <box flexDirection="row" gap={1} flexShrink={0}>
+                <Show when={!busy()} fallback={
+                  <text fg={confirming() ? t().confirmFg : t().muted} bg={confirming() ? t().confirmBg : t().panel}>
+                    {`${spinner()} working…`}
+                  </text>
+                }>
+                  <text fg={confirming() ? t().confirmFg : t().accent} bg={confirming() ? t().confirmBg : t().panel}>
+                    {providerTitle(props.session.provider)}
+                  </text>
+                  <Show when={effectiveModel()}>
+                    <text fg={confirming() ? t().confirmFg : t().muted} bg={confirming() ? t().confirmBg : t().panel}>·</text>
+                    <text fg={confirming() ? t().confirmFg : t().text} bg={confirming() ? t().confirmBg : t().panel}>
+                      {effectiveModel()}
+                    </text>
+                    <text fg={confirming() ? t().confirmFg : t().muted} bg={confirming() ? t().confirmBg : t().panel}>
+                      {PROVIDER_ORG[props.session.provider] ?? props.session.provider}
+                    </text>
+                  </Show>
+                </Show>
+              </box>
+            </box>
+          </box>
+    </box>
+        {/* opencode's Footer verbatim in structure: directory left, items right */}
+        <box flexDirection="row" justifyContent="space-between" gap={1} marginTop={1}>
+          <text fg={t().muted}>{props.session.defaultCwd}</text>
+          <box flexDirection="row" gap={2} flexShrink={0}>
+            <Show when={findingsCount() > 0}>
+              <text fg={t().text}>{`${TOOL_ICON.scan_project} ${findingsCount()} finding${findingsCount() === 1 ? "" : "s"}`}</text>
+            </Show>
+            <Show when={ctxTokens() > 0}>
+              <text fg={t().text}>{`${fmtTokens(ctxTokens())} (${ctxPct()}%)`}</text>
+            </Show>
+            <text fg={t().muted}>ctrl+p commands</text>
+          </box>
         </box>
       </box>
+
+      {/*
+        Overlays sit after the composer in tree order so they draw on top.
+        The slash palette anchors just above the composer, bottom-left --
+        where the eye already is while typing.
+      */}
+      <Show when={paletteVisible()}>
+        <box position="absolute" bottom={7} left={1} width={50} flexDirection="column">
+          <box
+            flexDirection="column"
+            border
+            borderColor={t().border}
+            backgroundColor={t().panel}
+            customBorderChars={ROUNDED_BORDER_CHARS}
+            paddingLeft={1}
+            paddingRight={1}
+            paddingTop={0}
+            paddingBottom={0}
+          >
+            <For each={filteredCommands().slice(0, 6)}>
+              {(cmd, i) => {
+                // NOTE: the comparison must live inside the JSX attributes --
+                // a const computed here would run once and never react to
+                // arrow-key changes.
+                return (
+                  <box flexDirection="row">
+                    <text
+                      width={11}
+                      flexShrink={0}
+                      fg={i() === cmdIndex() ? t().confirmFg : t().accent}
+                      bg={i() === cmdIndex() ? t().confirmBg : t().panel}
+                    >
+                      {`/${cmd.name}`}
+                    </text>
+                    <text
+                      flexGrow={1}
+                      fg={i() === cmdIndex() ? t().confirmFg : t().muted}
+                      bg={i() === cmdIndex() ? t().confirmBg : t().panel}
+                    >
+                      {cmd.desc}
+                    </text>
+                  </box>
+                );
+              }}
+            </For>
+            <text fg={t().muted}>{"↑↓ select · enter run · esc dismiss"}</text>
+          </box>
+        </box>
+      </Show>
+
+      <Show when={dialog() === "help"}>
+        <HelpDialog onClose={() => setDialog(null)} />
+      </Show>
+      <Show when={dialog() === "themes"}>
+        <ThemeDialog onClose={() => setDialog(null)} onApply={(name) => showToast(`theme: ${name}`)} />
+      </Show>
+
+      <Show when={toastMsg()}>
+        <box position="absolute" bottom={8} right={1} backgroundColor={t().panel}>
+          <box
+            border
+            borderColor={t().border}
+            backgroundColor={t().panel}
+            customBorderChars={ROUNDED_BORDER_CHARS}
+            paddingLeft={1}
+            paddingRight={1}
+          >
+            <text fg={t().accent}>{toastMsg()}</text>
+          </box>
+        </box>
+      </Show>
     </box>
   );
 }
